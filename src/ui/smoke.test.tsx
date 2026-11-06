@@ -63,6 +63,10 @@ describe("app smoke test (local mode)", () => {
     await act(async () => byText(".task-title", "Write the email template")!.click());
     await act(async () => byText("dialog button", "Today")!.click());
     await act(async () => byText("dialog button", "1h")!.click());
+    const tagInput = document.querySelector<HTMLInputElement>('dialog input[placeholder="add tag"]')!;
+    await type(tagInput, "Writing");
+    await act(async () => tagInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(byText("dialog button", "#writing")).toBeTruthy();
     await act(async () => byText("dialog button", "Close")!.click());
 
     // Today shows it; check it off with "took 1.5h"
@@ -86,6 +90,7 @@ describe("app smoke test (local mode)", () => {
     expect(document.body.textContent).toContain("Planned vs. done");
     // Today isn't finished yet, so it isn't in the 30-day average; it is in the heatmap
     expect(document.body.textContent).toContain("No finished planned days yet");
+    expect(document.body.textContent).toContain("#writing");
     expect(document.querySelector('.cell.l4[role="button"]')).not.toBeNull();
   });
 });

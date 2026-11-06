@@ -7,12 +7,15 @@ This is the guide for any coding agent (or person) changing this repo. It covers
 TaskLube (TL) is a static React PWA for tasks, projects, habits and a daily planned-vs-done record. There is no server.
 
 ```
- Browser app (PWA) ──GitHub contents API──►  private data repo: logger.json
+ Browser app (PWA) ──GitHub contents API──►  private data repo: tasklube.json + archive/<year>.json
                                                   ▲
  CLI (scripts/tl.ts) ──git pull/commit/push───────┘   (used by an LLM agent on a local clone)
 ```
 
-- **Data:** one JSON document, the `Data` type in `src/core/model.ts`.
+- **Data files** (all handled in `src/core/format.ts`):
+  - `tasklube.json`: the main file (`Data` in `src/core/model.ts`), sent in full on every save.
+  - `archive/<year>.json` (`Archive`): finished tasks, day records and habit days older than 90 days. Loaded only for history views.
+  - `logger.json`: the legacy v1 file. After migration it's a small pointer stub, so outdated cached apps can't overwrite the real data.
 - **Writers:** the app, through the GitHub contents API with the user's fine-grained token, and the CLI, through git on a local clone. Both apply changes through the **same core code**.
 
 ## Layout
@@ -24,8 +27,9 @@ TaskLube (TL) is a static React PWA for tasks, projects, habits and a daily plan
 | `src/core/days.ts` | `recordDay()`: keeps the daily record (planned/done/dropped/extra, backfill, per-project counts). |
 | `src/core/stats.ts` | Read-only derived numbers: day %, carried-over counts, habit weeks, estimate ratio, growth. |
 | `src/core/dates.ts` | Local-calendar `YYYY-MM-DD` helpers, ISO weeks. |
+| `src/core/format.ts` | File names, compact serialization (one item per line, defaults omitted), migrations, `NewerFormatError`, archive split/merge, `withHistory()`. |
 | `src/sync/github.ts` | Read and write one file through the GitHub contents API. Error messages for token problems. |
-| `src/sync/store.ts` | App state: `view = base + pending`, debounced saves, conflict replay, offline cache in localStorage. |
+| `src/sync/store.ts` | App state: `view = base + pending`, debounced saves, conflict replay, offline cache in localStorage, one-time legacy migration, daily archiving, lazy archive loading (`history()`). |
 | `src/ui/` | Screens (Today, Week, Projects, Inbox, Stats ("Record" tab), Settings/Setup) and shared pieces. |
 | `scripts/tl.ts` | CLI: `show <view>` and `apply <actions>`, with git pull, commit and push, plus retry on conflict. |
 | `public/` | Manifest, service worker (network-first app-shell cache), icons. |
@@ -38,20 +42,21 @@ TaskLube (TL) is a static React PWA for tasks, projects, habits and a daily plan
    - `stamp()` assigns `at` and the ids of new items, once.
    - `apply()` must not read the clock or randomness. Use `action.at`.
    - Adds are idempotent by id.
-3. **Daily record semantics** (`days.ts`). The UI and the user's understanding of their history depend on these:
+3. **Daily record semantics** (`days.ts`). Day records hold **task ids only**; titles come from the task, or from `deleted` (tombstones) for tasks deleted later. The UI and the user's understanding of their history depend on these:
    - **Planned only grows** during a day: any task whose `scheduled` equals that day is added. Moving a task later doesn't remove it. Deleting a task the same day does.
    - **Today stays live:** done and dropped can be undone. Past days only gain completions (settled once, when the next day starts).
    - **Skipped days** (up to 14) are backfilled from tasks still scheduled on them and marked `src: "backfilled"`.
    - **Done** = planned tasks with `status: "done"` and `doneOn` equal to that day. Tasks done without being planned go in `extra`, not in the %.
-4. **Schema changes are additive.**
-   - New fields are optional.
-   - `parse()` in `store.ts` and `load()` in `scripts/tl.ts` fill in defaults for missing ones.
-   - Before renaming or removing anything, write a migration keyed on `Data.version` and update both loaders.
-   - Old cached app versions may still write the old shape for a while.
-5. **Legacy names stay as they are.** The localStorage keys (`logger.config`, `logger.cache`) and the default data file name (`logger.json`) predate the rename to TaskLube. Changing them disconnects every configured device. If they must change, read the old key as a fallback.
-6. **Wording is neutral.** UI copy says "carried over", "not done", "moved", "dropped", "nothing planned". Never "overdue", "failed", "missed", "streak", or red warning styles for not-done work. The point of the app is a record without guilt.
-7. **Durations are minutes** (`est`, `took`). Dates are local `YYYY-MM-DD` strings, which compare correctly as strings.
-8. **The token stays in the browser.** Don't log it, send it anywhere but `api.github.com`, or add analytics or third-party scripts.
+4. **Format changes go through `format.ts`.**
+   - The current format is `SCHEMA_VERSION` (2). `parseData()` migrates older files and throws `NewerFormatError` for newer ones. The store then blocks saving and asks for a reload, so an old app can't overwrite newer data.
+   - New fields are optional, and defaults are filled in by `normTask` / `normDay` and stripped again by `compactTask` / `compactDay`.
+   - To rename or remove a field, bump `SCHEMA_VERSION`, add a migration in `parseData()` and `parseArchive()`, and add a test with a sample file in the old format (see `format.test.ts`).
+   - Old cached app versions may still run for a while. If a change would let one of them corrupt the new shape, move to a new file name, as v2 did with `tasklube.json`.
+5. **Archive rules** (`splitArchive`): move only tasks that are done/dropped for over 90 days with no unfinished steps, day records over 90 days old, and old habit days. Write archive files first and the main file second. Merging is idempotent, and `withHistory()` lets the main file win, so an interrupted archive never loses or duplicates anything. History views (Record screen, day details, weekly reviews) must use `history()` / `withHistory()`, not the main file alone.
+6. **Legacy names stay as they are.** The localStorage keys (`logger.config`, `logger.cache`) predate the rename to TaskLube, and a configured `path` of `logger.json` is mapped to `tasklube.json` next to it by `paths()`. Changing the keys disconnects every configured device.
+7. **Wording is neutral.** UI copy says "carried over", "not done", "moved", "dropped", "nothing planned". Never "overdue", "failed", "missed", "streak", or red warning styles for not-done work. The point of the app is a record without guilt.
+8. **Durations are minutes** (`est`, `took`). Dates (including `createdAt`) are local `YYYY-MM-DD` strings, which compare correctly as strings. Tags are lowercase strings without `#`.
+9. **The token stays in the browser.** Don't log it, send it anywhere but `api.github.com`, or add analytics or third-party scripts.
 
 ## Making a change
 
@@ -69,11 +74,13 @@ npm run build
 ## CLI
 
 ```bash
-npm run -s tl -- show today|week [date]|projects|project <name>|inbox|tasks <text>|habits|record [days] [--data <path>]
+npm run -s tl -- show today|week [date]|projects|project <name>|inbox|tasks <text>|habits|record [days]|tags [--data <path>]
+npm run -s tl -- migrate
 npm run -s tl -- apply '<action JSON or array>' -m "summary" [--data <path>] [--no-git] [--as-me]
 ```
 
-- **Data path:** `--data`, else `$TL_DATA`, else `~/Co-Projects/tl-data/logger.json`.
+- **Data path:** `--data`, else `$TL_DATA`, else `~/Co-Projects/tl-data/tasklube.json`. Archives are read from `archive/` next to it for `record`, `project`, `tasks` and `tags`.
+- **`migrate`:** converts a legacy `logger.json` once. Any `apply` also does it.
 - **With git:** it pulls first, commits (`claude: …` prefix by default), and pushes. If the push is rejected, it drops its commit, pulls, and re-applies (up to 3 tries).
 - **Tagging:** new tasks and projects get `by: "claude"` unless `--as-me` is passed. The app shows these as "by Claude".
 - **Action shapes:** see the `Action` type in `src/core/actions.ts`. To clear a field, set it to `""` in a patch.

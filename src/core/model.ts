@@ -24,7 +24,7 @@ export interface Project {
   /** Submittable version due. Ship mode runs from here until the deadline. */
   internalDeadline?: Day;
   wrapup?: { planned?: string; happened?: string; grew?: string };
-  createdAt: string; // ISO timestamp
+  createdAt: Day;
   /** "claude" when created by Claude (through the CLI). */
   by?: string;
 }
@@ -44,7 +44,9 @@ export interface Task {
   took?: number; // minutes
   dread?: number; // 1-5
   order: number;
-  createdAt: string; // ISO
+  /** Free-form categories, e.g. "writing", "research". For grouping stats. */
+  tags?: string[];
+  createdAt: Day;
   doneOn?: Day;
   droppedOn?: Day;
   /** "claude" when created by Claude (through the CLI). */
@@ -58,27 +60,31 @@ export interface Habit {
   archived?: boolean;
 }
 
-export interface PlannedEntry {
-  title: string;
-  projectId: string | null;
-  est?: number;
-}
+/** Data format version. Bump with a migration in core/format.ts when the shape changes. */
+export const SCHEMA_VERSION = 2;
 
-/** What was planned and done on one day. "planned" only grows during the day. */
+/**
+ * What was planned and done on one day, as task ids. "planned" only grows during the day.
+ * Titles etc. come from the task itself (or from `deleted` if it was deleted later).
+ */
 export interface DayRecord {
-  planned: Record<string, PlannedEntry>;
+  planned: string[];
   done: string[];
   dropped: string[];
   /** Done that day without being planned for that day. */
-  extra: Record<string, { title: string; projectId: string | null }>;
-  /** "backfilled" = reconstructed later because the app wasn't used that day. */
-  src: "live" | "backfilled";
-  /** Per project: [open+done task count, done count]. For growth charts. */
-  counts?: Record<string, [number, number]>;
+  extra: string[];
+  /** Set when the day was reconstructed later because the app wasn't used that day. */
+  src?: "backfilled";
+}
+
+/** Minimal info kept for deleted tasks that appear in the daily record. */
+export interface Tombstone {
+  title: string;
+  projectId: string | null;
 }
 
 export interface Data {
-  version: 1;
+  version: number;
   settings: { capacityHours: number };
   projects: Project[];
   tasks: Task[];
@@ -86,19 +92,32 @@ export interface Data {
   /** day -> habit ids done that day */
   habitLog: Record<Day, string[]>;
   days: Record<Day, DayRecord>;
+  /** Deleted tasks still referenced by day records. */
+  deleted: Record<string, Tombstone>;
   /** Last day the record was updated. */
   lastDay: Day | null;
 }
 
+/** Older history moved out of the main file: one per year (archive/<year>.json). */
+export interface Archive {
+  version: number;
+  year: string;
+  tasks: Task[];
+  days: Record<Day, DayRecord>;
+  habitLog: Record<Day, string[]>;
+  deleted: Record<string, Tombstone>;
+}
+
 export function emptyData(): Data {
   return {
-    version: 1,
+    version: SCHEMA_VERSION,
     settings: { capacityHours: 5 },
     projects: [],
     tasks: [],
     habits: [],
     habitLog: {},
     days: {},
+    deleted: {},
     lastDay: null,
   };
 }
@@ -106,6 +125,14 @@ export function emptyData(): Data {
 export function newId(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}_${Date.now().toString(36)}${rand}`;
+}
+
+/** Title and project for any task id: live, archived (if merged in), or deleted. */
+export function taskInfo(data: Data, id: string): { title: string; projectId: string | null; task?: Task } {
+  const task = data.tasks.find((t) => t.id === id);
+  if (task) return { title: task.title, projectId: task.projectId, task };
+  const gone = data.deleted[id];
+  return gone ? { ...gone } : { title: "(unknown task)", projectId: null };
 }
 
 export function isOpen(t: Task): boolean {

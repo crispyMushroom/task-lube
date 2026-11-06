@@ -112,7 +112,7 @@ export function Setup({ onDone }: { onDone: (c: Config) => void }) {
   const [owner, setOwner] = useState("");
   const [repo, setRepo] = useState("tl-data");
   const [branch, setBranch] = useState("main");
-  const [path, setPath] = useState("logger.json");
+  const [path, setPath] = useState("tasklube.json");
   const [token, setToken] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -134,7 +134,7 @@ export function Setup({ onDone }: { onDone: (c: Config) => void }) {
           className="form"
           onSubmit={async (e) => {
             e.preventDefault();
-            const c: Config = { mode: "github", owner: owner.trim(), repo: repo.trim(), branch: branch.trim() || "main", path: path.trim() || "logger.json", token: token.trim() };
+            const c: Config = { mode: "github", owner: owner.trim(), repo: repo.trim(), branch: branch.trim() || "main", path: path.trim() || "tasklube.json", token: token.trim() };
             setBusy(true);
             setMsg("");
             try {

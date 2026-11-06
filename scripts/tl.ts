@@ -2,22 +2,37 @@
  * TaskLube CLI (tl): how an agent (or you) reads and changes TaskLube data from a terminal.
  * It applies changes through the same rules as the app, so the daily record stays consistent.
  *
- *   npm run tl -- show today|week|projects|project <name>|inbox|record [days]|habits|tasks <text>
+ *   npm run tl -- show today|week|projects|project <name>|inbox|record [days]|habits|tasks <text>|tags
  *   npm run tl -- apply '<action JSON or array>' [-m "message"] [--no-git] [--as-me]
+ *   npm run tl -- migrate      (one-time: logger.json -> tasklube.json; also happens on first apply)
  *   (new tasks/projects are tagged by: "claude" unless --as-me)
  *
- * Data file: --data <path>, or $TL_DATA, default ~/Co-Projects/tl-data/logger.json
+ * Data file: --data <path>, or $TL_DATA, default ~/Co-Projects/tl-data/tasklube.json.
+ * Archive files (archive/<year>.json) next to it are read for history views and written when
+ * old history gets moved out (same rules as the app, see src/core/format.ts).
  * With git: pulls first, then commits ("claude: …" by default) and pushes. If the push is
  * rejected because the app saved meanwhile, it pulls and re-applies the actions.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { applyAll, describe, stamp, type Action, type ActionInput } from "../src/core/actions";
 import { addDays, fmtDay, relDay, today, weekDays } from "../src/core/dates";
-import { emptyData, fmtMinutes, isOpen, VERSIONS, type Data, type Task } from "../src/core/model";
-import { carriedOver, dayStats, estimateReport, habitWeek, plannedEstimate, projectSummary } from "../src/core/stats";
+import {
+  isMovedStub,
+  legacyStub,
+  mergeArchive,
+  parseArchive,
+  parseData,
+  paths,
+  serializeArchive,
+  serializeData,
+  splitArchive,
+  withHistory,
+} from "../src/core/format";
+import { emptyData, fmtMinutes, isOpen, VERSIONS, type Archive, type Data, type Task } from "../src/core/model";
+import { carriedOver, dayStats, estimateReport, habitWeek, plannedEstimate, projectSummary, tagReport } from "../src/core/stats";
 
 const args = process.argv.slice(2);
 function flag(name: string): string | undefined {
@@ -34,11 +49,12 @@ function bool(name: string): boolean {
   return true;
 }
 
-const dataPath = resolve((flag("--data") ?? process.env.TL_DATA ?? process.env.LOGGER_DATA ?? `${homedir()}/Co-Projects/tl-data/logger.json`).replace(/^~/, homedir()));
+const dataPath = resolve((flag("--data") ?? process.env.TL_DATA ?? process.env.LOGGER_DATA ?? `${homedir()}/Co-Projects/tl-data/tasklube.json`).replace(/^~/, homedir()));
 const message = flag("-m");
 const noGit = bool("--no-git");
 const asMe = bool("--as-me"); // don't tag new tasks/projects as created by Claude
 const dir = dirname(dataPath);
+const files = paths(dataPath);
 const useGit = !noGit && existsSync(resolve(dir, ".git"));
 
 function git(...a: string[]) {
@@ -57,13 +73,42 @@ function pull() {
   if (git("ls-remote", "--heads", "origin", branch)) git("pull", "--rebase", "--quiet", "origin", branch);
 }
 
-function load(): Data {
-  if (!existsSync(dataPath)) return emptyData();
-  const d = JSON.parse(readFileSync(dataPath, "utf8"));
-  return { ...emptyData(), ...d, settings: { ...emptyData().settings, ...(d.settings ?? {}) } };
+/** The legacy file still holds the real data (not migrated yet). */
+function legacyPending(): boolean {
+  return !existsSync(files.hot) && files.legacy !== files.hot && existsSync(files.legacy) && !isMovedStub(readFileSync(files.legacy, "utf8"));
 }
-function save(d: Data) {
-  writeFileSync(dataPath, JSON.stringify(d, null, 1) + "\n");
+function load(): Data {
+  if (existsSync(files.hot)) return parseData(readFileSync(files.hot, "utf8"));
+  if (legacyPending()) return parseData(readFileSync(files.legacy, "utf8"));
+  return emptyData();
+}
+function loadArchives(): Archive[] {
+  if (!existsSync(files.archiveDir)) return [];
+  return readdirSync(files.archiveDir)
+    .filter((n) => /^\d{4}\.json$/.test(n))
+    .sort()
+    .map((n) => parseArchive(readFileSync(files.archiveFile(n.slice(0, 4)), "utf8"), n.slice(0, 4)));
+}
+/** Write the main file (moving old history to the archive first), and finish a pending migration. */
+function save(d: Data): string[] {
+  const touched = [files.hot];
+  if (legacyPending()) {
+    writeFileSync(files.legacy, legacyStub());
+    touched.push(files.legacy);
+  }
+  const split = splitArchive(d, day);
+  if (split) {
+    mkdirSync(files.archiveDir, { recursive: true });
+    for (const [year, add] of Object.entries(split.byYear)) {
+      const f = files.archiveFile(year);
+      const existing = existsSync(f) ? parseArchive(readFileSync(f, "utf8"), year) : null;
+      writeFileSync(f, serializeArchive(mergeArchive(existing, add)));
+      touched.push(f);
+    }
+    d = split.hot;
+  }
+  writeFileSync(files.hot, serializeData(d));
+  return touched;
 }
 
 const [cmd, ...rest] = args;
@@ -83,6 +128,7 @@ function line(t: Task, d: Data, opts: { project?: boolean } = {}) {
     t.scheduled ? `planned ${t.scheduled}` : "",
     t.due ? `due ${t.due}` : "",
     t.dread ? `dread ${t.dread}` : "",
+    t.tags?.length ? t.tags.map((x) => "#" + x).join(" ") : "",
   ].filter(Boolean);
   return `${box} ${t.title}${bits.length ? "  (" + bits.join(", ") + ")" : ""}  {${t.id}}`;
 }
@@ -93,7 +139,7 @@ function show(d: Data, what: string, arg: string) {
     case "today": {
       const rec = d.days[day];
       const st = dayStats(rec);
-      const est = plannedEstimate(rec);
+      const est = plannedEstimate(rec, d);
       out.push(`Today ${day}: ${st ? `${st.done} of ${st.planned} planned done (${Math.round(st.pct * 100)}%)` : "nothing planned"}; estimated ${fmtMinutes(est.minutes) || "0m"} (guideline ${d.settings.capacityHours}h)`);
       for (const t of d.tasks.filter((x) => x.scheduled === day)) out.push("  " + line(t, d, { project: true }));
       const ship = d.projects.map((p) => projectSummary(d, p, day)).filter((s) => s.ship);
@@ -161,22 +207,26 @@ function show(d: Data, what: string, arg: string) {
         const rec = d.days[dd];
         const st = dayStats(rec);
         const habits = (d.habitLog[dd] ?? []).map((id) => d.habits.find((h) => h.id === id)?.name ?? id);
-        if (!st && !habits.length && !Object.keys(rec?.extra ?? {}).length) continue;
+        if (!st && !habits.length && !rec?.extra.length) continue;
         out.push(
-          `${dd}: ${st ? `${st.done}/${st.planned} planned done (${Math.round(st.pct * 100)}%)${st.dropped ? `, ${st.dropped} dropped` : ""}` : "nothing planned"}${rec?.src === "backfilled" ? " [reconstructed]" : ""}${Object.keys(rec?.extra ?? {}).length ? `, also done: ${Object.keys(rec!.extra).length}` : ""}${habits.length ? `; habits: ${habits.join(", ")}` : ""}`
+          `${dd}: ${st ? `${st.done}/${st.planned} planned done (${Math.round(st.pct * 100)}%)${st.dropped ? `, ${st.dropped} dropped` : ""}` : "nothing planned"}${rec?.src === "backfilled" ? " [reconstructed]" : ""}${rec?.extra.length ? `, also done: ${rec.extra.length}` : ""}${habits.length ? `; habits: ${habits.join(", ")}` : ""}`
         );
       }
       const e = estimateReport(d, day);
       out.push(e.n ? `Estimates (30 days): ${e.n} tasks, actual/estimate ${e.ratio!.toFixed(2)}x; ${e.bySize.map((s) => `${s.label} ${s.ratio.toFixed(2)}x (${s.n})`).join(", ")}` : "Estimates: no tasks with both est and took yet.");
       break;
     }
+    case "tags":
+      for (const r of tagReport(d, day)) out.push(`#${r.tag}: planned ${r.planned}, done that day ${r.done}, finished ${r.finished}${r.ratio != null ? `, actual/estimate ${r.ratio.toFixed(2)}x` : ""} (last 30 days)`);
+      if (!out.length) out.push("No tagged tasks in the last 30 days.");
+      break;
     default:
-      throw new Error(`Unknown view "${what}". Try: today, week, projects, project <name>, inbox, tasks <text>, habits, record [days]`);
+      throw new Error(`Unknown view "${what}". Try: today, week, projects, project <name>, inbox, tasks <text>, habits, record [days], tags`);
   }
   console.log(out.join("\n"));
 }
 
-function applyCmd(json: string) {
+function applyCmd(json: string, msgOverride?: string) {
   const parsed = JSON.parse(json);
   const inputs: ActionInput[] = Array.isArray(parsed) ? parsed : [parsed];
   const actions: Action[] = inputs.map((a) => {
@@ -185,10 +235,11 @@ function applyCmd(json: string) {
     return stamp(a);
   });
 
+  let touched: string[] = [];
   const run = () => {
     const before = load();
     const after = applyAll(before, actions);
-    save(after);
+    touched = save(after);
     return { before, after };
   };
 
@@ -201,8 +252,9 @@ function applyCmd(json: string) {
   if (remote) pull();
   for (let attempt = 0; attempt < 3; attempt++) {
     const { before } = run();
-    const msg = message ? (message.startsWith("claude:") ? message : `claude: ${message}`) : `claude: ${describe(actions[0], before)}${actions.length > 1 ? ` (+${actions.length - 1} more)` : ""}`;
-    git("add", dataPath);
+    const custom = msgOverride ?? message;
+    const msg = custom ? (custom.startsWith("claude:") ? custom : `claude: ${custom}`) : `claude: ${describe(actions[0], before)}${actions.length > 1 ? ` (+${actions.length - 1} more)` : ""}`;
+    git("add", "--", ...touched);
     try {
       git("commit", "--quiet", "-m", msg, "-m", "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>");
     } catch {
@@ -228,7 +280,16 @@ function applyCmd(json: string) {
 try {
   if (cmd === "show") {
     if (useGit && hasRemote()) pull();
-    show(load(), rest[0] ?? "today", rest.slice(1).join(" "));
+    const view = rest[0] ?? "today";
+    // History views include archived tasks and days
+    const d = ["record", "project", "tasks", "tags"].includes(view) ? withHistory(load(), loadArchives()) : load();
+    show(d, view, rest.slice(1).join(" "));
+  } else if (cmd === "migrate") {
+    if (!legacyPending()) {
+      console.log(existsSync(files.hot) ? "Already migrated." : "Nothing to migrate.");
+    } else {
+      applyCmd('{"type":"tick"}', "claude: move data to tasklube.json (compact format)");
+    }
   } else if (cmd === "apply") {
     if (!rest[0]) throw new Error("apply needs an action JSON");
     applyCmd(rest[0]);

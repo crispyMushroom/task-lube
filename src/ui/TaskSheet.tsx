@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { addDays } from "../core/dates";
 import { fmtMinutes, parseDuration, VERSIONS, type Task, type TaskStatus, type Version } from "../core/model";
+import { allTags } from "../core/stats";
 import { Dialog, EstPicker, TaskRow } from "./common";
 import { useTaskLube } from "./context";
 
@@ -116,6 +117,8 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
         </div>
       </div>
 
+      <TagEditor tags={task.tags ?? []} known={allTags(data)} onChange={(tags) => patch({ tags: tags.length ? tags : undefined })} />
+
       <EstPicker value={task.est} onChange={(v) => patch({ est: v })} />
 
       <label className="field">
@@ -220,5 +223,54 @@ export function TookDialog({ task, onClose }: { task: Task | null; onClose: () =
         </div>
       )}
     </Dialog>
+  );
+}
+
+/** Tags: tap one to remove it, type to add, or pick one you've used before. */
+function TagEditor({ tags, known, onChange }: { tags: string[]; known: string[]; onChange: (tags: string[]) => void }) {
+  const [text, setText] = useState("");
+  const add = (raw: string) => {
+    const next = raw
+      .split(",")
+      .map((t) => t.trim().toLowerCase().replace(/^#/, "").replace(/\s+/g, "-"))
+      .filter(Boolean);
+    if (next.length) onChange([...new Set([...tags, ...next])]);
+    setText("");
+  };
+  const suggestions = known.filter((t) => !tags.includes(t)).slice(0, 8);
+  return (
+    <div className="field">
+      <span className="label">Tags</span>
+      <div className="chips-row">
+        {tags.map((t) => (
+          <button key={t} className="pill is-on" title="Remove" onClick={() => onChange(tags.filter((x) => x !== t))}>
+            #{t} ×
+          </button>
+        ))}
+        <input
+          className="pill-input"
+          style={{ width: 120 }}
+          placeholder="add tag"
+          value={text}
+          onChange={(e) => (e.target.value.endsWith(",") ? add(e.target.value) : setText(e.target.value))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add(text);
+            }
+          }}
+          onBlur={() => text.trim() && add(text)}
+        />
+      </div>
+      {suggestions.length > 0 && (
+        <div className="chips-row">
+          {suggestions.map((t) => (
+            <button key={t} className="pill" onClick={() => onChange([...tags, t])}>
+              #{t}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

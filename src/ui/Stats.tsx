@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { addDays, fmtDay, parseDay, weekStart } from "../core/dates";
-import { fmtMinutes } from "../core/model";
-import { dayStats, estimateReport, projectGrowth, recentAverage } from "../core/stats";
+import { fmtMinutes, taskInfo } from "../core/model";
+import { dayStats, estimateReport, projectGrowth, recentAverage, tagReport } from "../core/stats";
 import { Dialog, Empty, Section, projectName } from "./common";
-import { useTaskLube, useUi } from "./context";
+import { useHistory, useTaskLube, useUi } from "./context";
 
 interface Cell {
   cls: string;
@@ -49,8 +49,10 @@ function Heatmap({ weeks, cell, legend }: { weeks: number; cell: (day: string) =
 }
 
 export function Stats() {
-  const { data, day } = useTaskLube();
+  const { day } = useTaskLube();
+  const { history: data, loading } = useHistory();
   const { openDay } = useUi();
+  const tags = tagReport(data, day);
   const avg = recentAverage(data, day);
   const est = estimateReport(data, day);
   const habits = data.habits.filter((h) => !h.archived);
@@ -59,6 +61,7 @@ export function Stats() {
 
   return (
     <div className="page">
+      {loading && <p className="muted small">Loading older history…</p>}
       <Section title="Planned vs. done">
         <p className="muted small">
           {avg.count
@@ -74,7 +77,7 @@ export function Stats() {
             const lvl = st.done === 0 ? 0 : st.pct <= 0.25 ? 1 : st.pct <= 0.5 ? 2 : st.pct <= 0.75 ? 3 : 4;
             return {
               cls: `l${lvl}`,
-              label: `${fmtDay(d)}: ${st.done} of ${st.planned} planned done (${Math.round(st.pct * 100)}%)${rec!.src === "backfilled" ? " · reconstructed" : ""}`,
+              label: `${fmtDay(d)}: ${st.done} of ${st.planned} planned done (${Math.round(st.pct * 100)}%)${rec?.src === "backfilled" ? " · reconstructed" : ""}`,
               onClick: () => openDay(d),
             };
           }}
@@ -121,10 +124,37 @@ export function Stats() {
         )}
       </Section>
 
+      <Section title="By tag (last 30 days)">
+        {tags.length === 0 ? (
+          <Empty>Add tags to tasks (e.g. writing, research) to see them compared here.</Empty>
+        ) : (
+          <table className="tag-table">
+            <thead>
+              <tr>
+                <th>Tag</th>
+                <th>Planned → done that day</th>
+                <th>Finished</th>
+                <th>Actual / estimate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tags.map((t) => (
+                <tr key={t.tag}>
+                  <td>#{t.tag}</td>
+                  <td>{t.planned ? `${t.done} of ${t.planned} (${Math.round((t.done / t.planned) * 100)}%)` : "—"}</td>
+                  <td>{t.finished}</td>
+                  <td>{t.ratio != null ? `${t.ratio.toFixed(1)}×` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
       <Section title="Project size over time">
         <p className="muted small">Total tasks (line) and done tasks (filled) per day. A rising line means the project grew.</p>
         {active.map((p) => (
-          <Growth key={p.id} name={p.name} points={projectGrowth(data, p.id)} />
+          <Growth key={p.id} name={p.name} points={projectGrowth(data, p.id, day)} />
         ))}
       </Section>
     </div>
@@ -165,7 +195,7 @@ function Growth({ name, points }: { name: string; points: { day: string; total: 
 }
 
 export function DayDialog({ day, onClose }: { day: string | null; onClose: () => void }) {
-  const { data } = useTaskLube();
+  const { history: data } = useHistory();
   const rec = day ? data.days[day] : undefined;
   const st = dayStats(rec);
   const habits = day ? (data.habitLog[day] ?? []).map((id) => data.habits.find((h) => h.id === id)?.name ?? id) : [];
@@ -182,24 +212,31 @@ export function DayDialog({ day, onClose }: { day: string | null; onClose: () =>
               </p>
               {rec!.src === "backfilled" && <p className="muted small">Reconstructed later from tasks still scheduled on this day.</p>}
               <ul className="day-list">
-                {Object.entries(rec!.planned).map(([id, p]) => {
+                {rec!.planned.map((id) => {
                   const state = rec!.done.includes(id) ? "done" : rec!.dropped.includes(id) ? "dropped" : "not done";
-                  const t = data.tasks.find((x) => x.id === id);
+                  const info = taskInfo(data, id);
+                  const t = info.task;
                   return (
                     <li key={id} className={`state-${state.replace(" ", "-")}`}>
-                      {p.title} <span className="muted small">({projectName(data, p.projectId)}{p.est ? `, est ${fmtMinutes(p.est)}` : ""}{t?.took ? `, took ${fmtMinutes(t.took)}` : ""}): {state}</span>
+                      {info.title}{" "}
+                      <span className="muted small">
+                        ({projectName(data, info.projectId)}
+                        {t?.est ? `, est ${fmtMinutes(t.est)}` : ""}
+                        {t?.took ? `, took ${fmtMinutes(t.took)}` : ""}
+                        {t ? "" : ", deleted later"}): {state}
+                      </span>
                     </li>
                   );
                 })}
               </ul>
             </>
           )}
-          {rec && Object.keys(rec.extra).length > 0 && (
+          {rec && rec.extra.length > 0 && (
             <>
               <p>Also done (not planned for this day):</p>
               <ul className="day-list">
-                {Object.entries(rec.extra).map(([id, e]) => (
-                  <li key={id}>{e.title}</li>
+                {rec.extra.map((id) => (
+                  <li key={id}>{taskInfo(data, id).title}</li>
                 ))}
               </ul>
             </>

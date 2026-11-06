@@ -42,7 +42,7 @@ describe("daily record", () => {
   it("moving a task later keeps it planned for the original day", () => {
     let d = apply(setup(), { type: "tick", at: at("2026-11-10", 9) });
     d = apply(d, { type: "updateTask", at: at("2026-11-10", 15), id: "b", patch: { scheduled: "2026-11-12" } });
-    expect(Object.keys(d.days["2026-11-10"].planned).sort()).toEqual(["a", "b"]);
+    expect(d.days["2026-11-10"].planned).toEqual(["a", "b"]);
   });
 
   it("unchecking on the same day undoes done", () => {
@@ -60,7 +60,7 @@ describe("daily record", () => {
   it("deleting a task the same day removes it from the plan", () => {
     let d = apply(setup(), { type: "tick", at: at("2026-11-10", 9) });
     d = apply(d, { type: "deleteTask", at: at("2026-11-10", 11), id: "b" });
-    expect(Object.keys(d.days["2026-11-10"].planned)).toEqual(["a"]);
+    expect(d.days["2026-11-10"].planned).toEqual(["a"]);
   });
 
   it("settles late completions, backfills skipped days, records extras", () => {
@@ -71,11 +71,11 @@ describe("daily record", () => {
     d = apply(d, { type: "tick", at: at("2026-11-13") });
     expect(dayStats(d.days["2026-11-10"])!.done).toBe(1);
     expect(d.days["2026-11-11"]).toMatchObject({ src: "backfilled" });
-    expect(Object.keys(d.days["2026-11-11"].planned)).toEqual(["c"]);
+    expect(d.days["2026-11-11"].planned).toEqual(["c"]);
     expect(d.days["2026-11-12"]).toBeUndefined();
     // Done today without being planned today
     d = apply(d, { type: "setStatus", at: at("2026-11-13", 14), id: "c", status: "done" });
-    expect(Object.keys(d.days["2026-11-13"].extra)).toEqual(["c"]);
+    expect(d.days["2026-11-13"].extra).toEqual(["c"]);
   });
 
   it("dropped tasks stay planned and are counted separately", () => {

@@ -21,6 +21,14 @@ export function useTaskLube(): { data: Data; status: SyncStatus; dispatch: (a: A
   return { data, status, dispatch: store.dispatch, day, store };
 }
 
+/** Current data plus archived history, for history views. Starts loading archives on first use. */
+export function useHistory(): { history: Data; loading: boolean } {
+  const store = useContext(StoreContext)!;
+  useEffect(() => store.ensureHistory(), [store]);
+  const history = useSyncExternalStore(store.subscribe, store.history);
+  return { history, loading: store.historyLoading };
+}
+
 export function useUi(): UiApi {
   return useContext(UiContext)!;
 }

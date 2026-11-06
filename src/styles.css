@@ -695,3 +695,19 @@ main {
 code {
   font-size: 12px;
 }
+
+.tag-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  width: 100%;
+}
+.tag-table th,
+.tag-table td {
+  text-align: left;
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tag-table th {
+  color: var(--muted);
+  font-weight: 500;
+}

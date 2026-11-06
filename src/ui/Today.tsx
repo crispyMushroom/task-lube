@@ -8,11 +8,11 @@ export function Today() {
   const { data, dispatch, day } = useTaskLube();
   const rec = data.days[day];
   const st = dayStats(rec);
-  const est = plannedEstimate(rec);
+  const est = plannedEstimate(rec, data);
   const scheduled = data.tasks.filter((t) => t.scheduled === day);
   const openFirst = (a: Task, b: Task) => Number(!isOpen(a)) - Number(!isOpen(b)) || a.order - b.order;
-  const movedAway = Object.keys(rec?.planned ?? {}).filter((id) => !scheduled.some((t) => t.id === id) && !rec!.done.includes(id));
-  const extraDone = Object.keys(rec?.extra ?? {}).length;
+  const movedAway = (rec?.planned ?? []).filter((id) => !scheduled.some((t) => t.id === id) && !rec!.done.includes(id));
+  const extraDone = rec?.extra.length ?? 0;
   const summaries = data.projects.filter((p) => p.status === "active").map((p) => projectSummary(data, p, day));
   const ship = summaries.filter((s) => s.ship);
   const soon = summaries.filter((s) => !s.ship && s.project.deadline && s.project.deadline >= day && s.project.deadline <= addDays(day, 21));

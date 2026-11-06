@@ -19,7 +19,7 @@ Agent-friendly task and progress tracker: a neutral record of what you planned a
 2. Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) while signed in as the account that owns that repo:
    - Repository access: **only that repo**
    - Permissions: **Contents: Read and write**
-3. Open the app and enter the repo and token. The data file (`logger.json`) is created on first use.
+3. Open the app and enter the repo and token. The data file (`tasklube.json`) is created on first use. History older than 90 days moves to `archive/<year>.json` automatically, so the main file stays small.
 
 ## Development
 

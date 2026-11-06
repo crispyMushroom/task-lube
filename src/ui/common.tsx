@@ -51,6 +51,7 @@ export function TaskRow({
   if (showDate && task.scheduled) chips.push(task.scheduled === day ? "today" : fmtDay(task.scheduled));
   if (task.due) chips.push(`due ${relDay(task.due, day)}`);
   if (task.dread) chips.push(`dread ${task.dread}`);
+  for (const tag of task.tags ?? []) chips.push(`#${tag}`);
   if (task.by === "claude") chips.push("by Claude");
   return (
     <div className={`task-row status-${task.status}`} style={depth ? { paddingLeft: depth * 20 } : undefined}>

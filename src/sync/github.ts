@@ -43,9 +43,9 @@ function fromBase64(b64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function url(c: RepoConfig) {
-  const path = c.path.split("/").map(encodeURIComponent).join("/");
-  return `${API}/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${path}`;
+function url(c: RepoConfig, path: string) {
+  const p = path.split("/").map(encodeURIComponent).join("/");
+  return `${API}/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${p}`;
 }
 
 async function fail(res: Response): Promise<never> {
@@ -64,9 +64,9 @@ async function fail(res: Response): Promise<never> {
   throw new GitHubError([hint, detail].filter(Boolean).join(" ") || `GitHub returned ${res.status}`, res.status);
 }
 
-/** Returns null if the file doesn't exist yet. */
-export async function readFile(c: RepoConfig): Promise<{ text: string; sha: string } | null> {
-  const res = await fetch(`${url(c)}?ref=${encodeURIComponent(c.branch)}`, { headers: headers(c.token), cache: "no-store" });
+/** Returns null if the file doesn't exist yet. `path` defaults to the configured file. */
+export async function readFile(c: RepoConfig, path: string = c.path): Promise<{ text: string; sha: string } | null> {
+  const res = await fetch(`${url(c, path)}?ref=${encodeURIComponent(c.branch)}`, { headers: headers(c.token), cache: "no-store" });
   if (res.status === 404) {
     // Distinguish "file missing" from "repo not accessible"
     const repo = await fetch(`${API}/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}`, { headers: headers(c.token), cache: "no-store" });
@@ -96,8 +96,8 @@ export async function readFile(c: RepoConfig): Promise<{ text: string; sha: stri
 }
 
 /** Writes the file. Throws GitHubError with isConflict when `sha` is out of date. Returns the new sha. */
-export async function writeFile(c: RepoConfig, text: string, sha: string | null, message: string): Promise<string> {
-  const res = await fetch(url(c), {
+export async function writeFile(c: RepoConfig, path: string, text: string, sha: string | null, message: string): Promise<string> {
+  const res = await fetch(url(c, path), {
     method: "PUT",
     headers: { ...headers(c.token), "Content-Type": "application/json" },
     body: JSON.stringify({ message, content: toBase64(text), branch: c.branch, ...(sha ? { sha } : {}) }),
@@ -105,4 +105,13 @@ export async function writeFile(c: RepoConfig, text: string, sha: string | null,
   if (!res.ok) await fail(res);
   const body = await res.json();
   return body.content.sha;
+}
+
+/** File names in a folder of the repo. Empty if the folder doesn't exist. */
+export async function listDir(c: RepoConfig, path: string): Promise<string[]> {
+  const res = await fetch(`${url(c, path)}?ref=${encodeURIComponent(c.branch)}`, { headers: headers(c.token), cache: "no-store" });
+  if (res.status === 404) return [];
+  if (!res.ok) await fail(res);
+  const body = await res.json();
+  return Array.isArray(body) ? body.filter((x: { type: string }) => x.type === "file").map((x: { name: string }) => x.name) : [];
 }

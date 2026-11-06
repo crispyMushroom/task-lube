@@ -3,12 +3,8 @@ import type { Data, DayRecord, Task } from "./model";
 
 const BACKFILL_DAYS = 14;
 
-function entry(t: Task) {
-  return { title: t.title, projectId: t.projectId, ...(t.est != null ? { est: t.est } : {}) };
-}
-
-function emptyRecord(src: DayRecord["src"]): DayRecord {
-  return { planned: {}, done: [], dropped: [], extra: {}, src };
+function emptyRecord(): DayRecord {
+  return { planned: [], done: [], dropped: [], extra: [] };
 }
 
 /**
@@ -19,7 +15,7 @@ function settle(rec: DayRecord, day: Day, tasks: Task[], live: boolean) {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const done = new Set(live ? [] : rec.done);
   const dropped = new Set(live ? [] : rec.dropped);
-  for (const id of Object.keys(rec.planned)) {
+  for (const id of rec.planned) {
     const t = byId.get(id);
     if (!t) continue;
     if (t.status === "done" && t.doneOn === day) done.add(id);
@@ -29,11 +25,10 @@ function settle(rec: DayRecord, day: Day, tasks: Task[], live: boolean) {
   }
   rec.done = [...done].sort();
   rec.dropped = [...dropped].sort();
-  const extra = live ? {} : { ...rec.extra };
-  for (const t of tasks) {
-    if (t.status === "done" && t.doneOn === day && !rec.planned[t.id]) extra[t.id] = { title: t.title, projectId: t.projectId };
-  }
-  rec.extra = extra;
+  const planned = new Set(rec.planned);
+  const extra = new Set(live ? [] : rec.extra);
+  for (const t of tasks) if (t.status === "done" && t.doneOn === day && !planned.has(t.id)) extra.add(t.id);
+  rec.extra = [...extra].sort();
 }
 
 /**
@@ -41,7 +36,7 @@ function settle(rec: DayRecord, day: Day, tasks: Task[], live: boolean) {
  * - Settles the last recorded day (catches late completions after the last update).
  * - Backfills skipped days from tasks still scheduled on them.
  * - Adds every task scheduled for `day` to its planned set. Planned only grows,
- *   so moving a task later doesn't rewrite that day. Deleted tasks are removed.
+ *   so moving a task later doesn't rewrite that day. Tasks deleted today are removed.
  */
 export function recordDay(data: Data, day: Day): Data {
   const { tasks } = data;
@@ -56,8 +51,7 @@ export function recordDay(data: Data, day: Day): Data {
       if (!data.days[cur]) {
         const planned = tasks.filter((t) => t.scheduled === cur);
         if (planned.length) {
-          const rec = emptyRecord("backfilled");
-          for (const t of planned) rec.planned[t.id] = entry(t);
+          const rec: DayRecord = { ...emptyRecord(), planned: planned.map((t) => t.id).sort(), src: "backfilled" };
           settle(rec, cur, tasks, false);
           data.days[cur] = rec;
         }
@@ -69,23 +63,21 @@ export function recordDay(data: Data, day: Day): Data {
   if (last && last > day) return data; // clock went backwards; don't touch the future record
 
   const existing = data.days[day];
-  const rec = existing ?? emptyRecord("live");
+  const rec = existing ?? emptyRecord();
   const ids = new Set(tasks.map((t) => t.id));
-  for (const t of tasks) if (t.scheduled === day) rec.planned[t.id] = entry(t);
-  for (const id of Object.keys(rec.planned)) if (!ids.has(id)) delete rec.planned[id];
-  // Keep titles/estimates current for tasks still scheduled today
+  const planned = new Set(rec.planned.filter((id) => ids.has(id)));
+  for (const t of tasks) if (t.scheduled === day) planned.add(t.id);
+  rec.planned = [...planned].sort();
   settle(rec, day, tasks, true);
 
-  const counts: Record<string, [number, number]> = {};
-  for (const t of tasks) {
-    if (!t.projectId || t.status === "dropped") continue;
-    const c = (counts[t.projectId] ??= [0, 0]);
-    c[0]++;
-    if (t.status === "done") c[1]++;
-  }
-  rec.counts = counts;
-
-  if (existing || Object.keys(rec.planned).length || Object.keys(rec.extra).length) data.days[day] = rec;
+  if (existing || rec.planned.length || rec.extra.length) data.days[day] = rec;
   data.lastDay = day;
   return data;
+}
+
+/** Ids referenced by any day record. */
+export function referencedIds(days: Record<Day, DayRecord>): Set<string> {
+  const s = new Set<string>();
+  for (const r of Object.values(days)) for (const list of [r.planned, r.done, r.dropped, r.extra]) for (const id of list) s.add(id);
+  return s;
 }

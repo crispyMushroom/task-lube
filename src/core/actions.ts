@@ -1,5 +1,5 @@
 import { today as todayOf, type Day } from "./dates";
-import { recordDay } from "./days";
+import { recordDay, referencedIds } from "./days";
 import { newId, type Data, type Habit, type Project, type Task } from "./model";
 
 /**
@@ -71,7 +71,7 @@ export function apply(input: Data, action: Action): Data {
           projectId,
           id: t.id ?? newId("t"),
           title: t.title.trim(),
-          createdAt: action.at,
+          createdAt: day,
         } as Task)
       );
       break;
@@ -102,12 +102,15 @@ export function apply(input: Data, action: Action): Data {
         grew = false;
         for (const t of data.tasks) if (t.parentId && remove.has(t.parentId) && !remove.has(t.id)) (remove.add(t.id), (grew = true));
       }
+      // Keep a title for deleted tasks the daily record still refers to
+      const refs = referencedIds(data.days);
+      for (const t of data.tasks) if (remove.has(t.id) && refs.has(t.id)) data.deleted[t.id] = { title: t.title, projectId: t.projectId };
       data.tasks = data.tasks.filter((t) => !remove.has(t.id));
       break;
     }
     case "addProject": {
       if (action.project.id && data.projects.some((x) => x.id === action.project.id)) break;
-      data.projects.push(clean({ status: "active", ...action.project, id: action.project.id ?? newId("p"), createdAt: action.at } as Project));
+      data.projects.push(clean({ status: "active", ...action.project, id: action.project.id ?? newId("p"), createdAt: day } as Project));
       break;
     }
     case "updateProject": {
@@ -150,7 +153,13 @@ export function apply(input: Data, action: Action): Data {
       break;
   }
 
-  return recordDay(data, day);
+  recordDay(data, day);
+  if (action.type === "deleteTask") {
+    // A task deleted on the day it was planned isn't in the record anymore; drop its tombstone
+    const refs = referencedIds(data.days);
+    for (const id of Object.keys(data.deleted)) if (!refs.has(id)) delete data.deleted[id];
+  }
+  return data;
 }
 
 export function applyAll(data: Data, actions: Action[]): Data {
