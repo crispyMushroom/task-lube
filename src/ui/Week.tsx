@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { addDays, fmtDay, weekDays, weekStart } from "../core/dates";
 import { fmtMinutes, isOpen, type Task } from "../core/model";
-import { dayStats } from "../core/stats";
+import { dayStats, timeSpent } from "../core/stats";
 import { Empty, Section, TaskRow, projectName } from "./common";
 import { useTaskLube } from "./context";
 
@@ -48,12 +48,15 @@ export function Week() {
           const tasks = data.tasks.filter((t) => t.scheduled === d);
           const est = tasks.filter((t) => t.status !== "dropped").reduce((a, t) => a + (t.est ?? 0), 0);
           const st = d < day ? dayStats(data.days[d]) : null;
+          const spent = d <= day ? timeSpent(data, d).minutes : 0;
           return (
             <div key={d} className={d === day ? "week-day is-today" : "week-day"}>
               <div className="week-day-head">
                 <span>{fmtDay(d, { weekday: "short", day: "numeric" })}</span>
                 <span className={est > cap ? "muted over" : "muted"}>
-                  {fmtMinutes(est) || "0m"} / {data.settings.capacityHours}h{st ? ` · ${st.done}/${st.planned} done` : ""}
+                  est {fmtMinutes(est) || "0m"} / {data.settings.capacityHours}h
+                  {spent ? ` · spent ${fmtMinutes(spent)}` : ""}
+                  {st ? ` · ${st.done}/${st.planned} done` : ""}
                 </span>
               </div>
               {tasks.length ? tasks.map((t) => <TaskRow key={t.id} task={t} showProject />) : <Empty>—</Empty>}

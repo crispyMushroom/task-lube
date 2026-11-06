@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { addDays, fmtDay, parseDay, weekStart } from "../core/dates";
 import { fmtMinutes, taskInfo } from "../core/model";
-import { dayStats, estimateReport, projectGrowth, recentAverage, tagReport } from "../core/stats";
+import { dayStats, estimateReport, habitSummary, habitWeek, projectGrowth, recentAverage, tagReport } from "../core/stats";
 import { Dialog, Empty, Section, projectName } from "./common";
 import { useHistory, useTaskLube, useUi } from "./context";
 
@@ -57,6 +57,22 @@ export function Stats() {
   const est = estimateReport(data, day);
   const habits = data.habits.filter((h) => !h.archived);
   const firstHabitDay = Object.keys(data.habitLog).sort()[0];
+  const [habitId, setHabitId] = useState<string>(() => {
+    try {
+      return localStorage.getItem("tasklube.recordHabit") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const habit = habits.find((h) => h.id === habitId) ?? habits[0];
+  const pickHabit = (id: string) => {
+    setHabitId(id);
+    try {
+      localStorage.setItem("tasklube.recordHabit", id);
+    } catch {
+      /* remembering the choice is optional */
+    }
+  };
   const active = data.projects.filter((p) => p.status === "active");
 
   return (
@@ -91,21 +107,18 @@ export function Stats() {
 
       <Section title="Habits">
         {habits.length === 0 && <Empty>No habits yet. Add them in Settings.</Empty>}
-        {habits.map((h) => (
-          <div key={h.id} className="habit-heat">
-            <h3>
-              {h.name} <span className="muted small">target {h.target}/week</span>
-            </h3>
-            <Heatmap
-              weeks={12}
-              cell={(d) => {
-                const on = data.habitLog[d]?.includes(h.id);
-                const before = !firstHabitDay || d < firstHabitDay;
-                return { cls: on ? "l4" : "none", label: `${fmtDay(d)}${on ? ": done" : before ? ": before tracking started" : ""}` };
-              }}
-            />
-          </div>
-        ))}
+        {habit && (
+          <>
+            <div className="chips-row habit-picker" role="tablist" aria-label="Habit">
+              {habits.map((h) => (
+                <button key={h.id} role="tab" aria-selected={h.id === habit.id} className={h.id === habit.id ? "pill is-on" : "pill"} onClick={() => pickHabit(h.id)}>
+                  {h.name}
+                </button>
+              ))}
+            </div>
+            <HabitRecord key={habit.id} habit={habit} firstDay={firstHabitDay} />
+          </>
+        )}
       </Section>
 
       <Section title="Estimates vs. actual (last 30 days)">
@@ -245,5 +258,27 @@ export function DayDialog({ day, onClose }: { day: string | null; onClose: () =>
         </div>
       )}
     </Dialog>
+  );
+}
+
+function HabitRecord({ habit, firstDay }: { habit: { id: string; name: string; target: number }; firstDay?: string }) {
+  const { day } = useTaskLube();
+  const { history: data } = useHistory();
+  const week = habitWeek(data, habit.id, day);
+  const s = habitSummary(data, habit.id, day, 12);
+  return (
+    <div className="habit-heat">
+      <p className="muted small">
+        This week {week} of {habit.target} · last 12 weeks: {s.days} days, {s.perWeek.toFixed(1)} per week on average (target {habit.target})
+      </p>
+      <Heatmap
+        weeks={26}
+        cell={(d) => {
+          const on = data.habitLog[d]?.includes(habit.id);
+          const before = !firstDay || d < firstDay;
+          return { cls: on ? "l4" : "none", label: `${fmtDay(d)}${on ? `: ${habit.name} done` : before ? ": before tracking started" : ""}` };
+        }}
+      />
+    </div>
   );
 }

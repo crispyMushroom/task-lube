@@ -1,6 +1,6 @@
 import { addDays, fmtDay, relDay } from "../core/dates";
 import { fmtMinutes, isOpen, type Task } from "../core/model";
-import { carriedOver, dayStats, habitWeek, plannedEstimate, projectSummary } from "../core/stats";
+import { carriedOver, dayStats, habitWeek, plannedEstimate, projectSummary, timeSpent } from "../core/stats";
 import { Bar, Empty, QuickAdd, Section, TaskRow } from "./common";
 import { go, useTaskLube } from "./context";
 
@@ -9,6 +9,7 @@ export function Today() {
   const rec = data.days[day];
   const st = dayStats(rec);
   const est = plannedEstimate(rec, data);
+  const spent = timeSpent(data, day);
   const scheduled = data.tasks.filter((t) => t.scheduled === day);
   const openFirst = (a: Task, b: Task) => Number(!isOpen(a)) - Number(!isOpen(b)) || a.order - b.order;
   const movedAway = (rec?.planned ?? []).filter((id) => !scheduled.some((t) => t.id === id) && !rec!.done.includes(id));
@@ -31,7 +32,8 @@ export function Today() {
             </div>
             <Bar pct={st.pct} />
             <div className="muted small">
-              Estimated {fmtMinutes(est.minutes) || "0m"} planned · guideline {data.settings.capacityHours}h
+              Spent {fmtMinutes(spent.minutes) || "0m"} so far{spent.missing ? ` (${spent.missing} finished without a time)` : ""} · estimated{" "}
+              {fmtMinutes(est.minutes) || "0m"} planned · guideline {data.settings.capacityHours}h
               {est.missing ? ` · ${est.missing} without an estimate` : ""}
               {st.dropped ? ` · ${st.dropped} dropped` : ""}
               {movedAway.length ? ` · ${movedAway.length} moved to another day` : ""}

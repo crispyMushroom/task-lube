@@ -32,7 +32,7 @@ import {
   withHistory,
 } from "../src/core/format";
 import { emptyData, fmtMinutes, isOpen, VERSIONS, type Archive, type Data, type Task } from "../src/core/model";
-import { carriedOver, dayStats, estimateReport, habitWeek, plannedEstimate, projectSummary, tagReport } from "../src/core/stats";
+import { carriedOver, dayStats, estimateReport, habitWeek, plannedEstimate, projectSummary, tagReport, timeSpent } from "../src/core/stats";
 
 const args = process.argv.slice(2);
 function flag(name: string): string | undefined {
@@ -140,7 +140,8 @@ function show(d: Data, what: string, arg: string) {
       const rec = d.days[day];
       const st = dayStats(rec);
       const est = plannedEstimate(rec, d);
-      out.push(`Today ${day}: ${st ? `${st.done} of ${st.planned} planned done (${Math.round(st.pct * 100)}%)` : "nothing planned"}; estimated ${fmtMinutes(est.minutes) || "0m"} (guideline ${d.settings.capacityHours}h)`);
+      const spent = timeSpent(d, day);
+      out.push(`Today ${day}: ${st ? `${st.done} of ${st.planned} planned done (${Math.round(st.pct * 100)}%)` : "nothing planned"}; spent ${fmtMinutes(spent.minutes) || "0m"}${spent.missing ? ` (+${spent.missing} finished without a time)` : ""}; estimated ${fmtMinutes(est.minutes) || "0m"} (guideline ${d.settings.capacityHours}h)`);
       for (const t of d.tasks.filter((x) => x.scheduled === day)) out.push("  " + line(t, d, { project: true }));
       const ship = d.projects.map((p) => projectSummary(d, p, day)).filter((s) => s.ship);
       for (const s of ship) out.push(`Ship mode: ${s.project.name} (deadline ${s.project.deadline}), Submittable open: ${s.submittableOpen.length}`);
@@ -155,7 +156,8 @@ function show(d: Data, what: string, arg: string) {
       for (const dd of weekDays(start)) {
         const tasks = d.tasks.filter((t) => t.scheduled === dd);
         const est = tasks.reduce((a, t) => a + (t.est ?? 0), 0);
-        out.push(`${dd} ${fmtDay(dd, { weekday: "short" })}: ${fmtMinutes(est) || "0m"} estimated`);
+        const spent = dd <= day ? timeSpent(d, dd).minutes : 0;
+        out.push(`${dd} ${fmtDay(dd, { weekday: "short" })}: ${fmtMinutes(est) || "0m"} estimated${spent ? `, ${fmtMinutes(spent)} spent` : ""}`);
         for (const t of tasks) out.push("  " + line(t, d, { project: true }));
       }
       break;

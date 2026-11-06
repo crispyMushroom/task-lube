@@ -161,3 +161,19 @@ describe("replay safety", () => {
     expect(first.tasks[0].id).toBe(second.tasks[0].id);
   });
 });
+
+describe("time spent and habit summary", () => {
+  it("adds up actual time of tasks finished that day, even without estimates", async () => {
+    const { timeSpent, habitSummary } = await import("./stats");
+    let d = setup();
+    d = apply(d, { type: "updateTask", at: at("2026-11-10"), id: "a", patch: { est: undefined } });
+    d = apply(d, { type: "setStatus", at: at("2026-11-10", 14), id: "a", status: "done", took: 90 });
+    d = apply(d, { type: "setStatus", at: at("2026-11-10", 15), id: "b", status: "done" });
+    expect(timeSpent(d, "2026-11-10")).toEqual({ minutes: 90, missing: 1 });
+    expect(timeSpent(d, "2026-11-11")).toEqual({ minutes: 0, missing: 0 });
+
+    d = apply(d, { type: "addHabit", at: at("2026-11-10"), habit: { id: "h", name: "Exercise", target: 3 } });
+    for (const day of ["2026-11-03", "2026-11-05", "2026-11-10"]) d = apply(d, { type: "toggleHabit", at: at("2026-11-10"), habitId: "h", day });
+    expect(habitSummary(d, "h", "2026-11-10", 2)).toEqual({ days: 3, perWeek: 1.5 });
+  });
+});

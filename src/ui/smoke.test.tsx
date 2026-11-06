@@ -76,10 +76,12 @@ describe("app smoke test (local mode)", () => {
     expect(document.body.textContent).toContain("Took about how long?");
     await act(async () => byText("dialog button", "1.5h")!.click());
     expect(document.body.textContent).toContain("1 of 1 planned done");
+    expect(document.body.textContent).toContain("Spent 1.5h so far");
 
     // Week, Record, Settings render; add a habit and log it
     await go("#/week");
     expect(document.body.textContent).toContain("Not scheduled");
+    expect(document.querySelector(".week-day.is-today .week-day-head")!.textContent).toContain("spent 1.5h");
     await go("#/settings");
     await type(document.querySelector<HTMLInputElement>('input[placeholder="New habit"]')!, "Meditation");
     await act(async () => document.querySelector<HTMLInputElement>('input[placeholder="New habit"]')!.form!.requestSubmit());
@@ -91,6 +93,15 @@ describe("app smoke test (local mode)", () => {
     // Today isn't finished yet, so it isn't in the 30-day average; it is in the heatmap
     expect(document.body.textContent).toContain("No finished planned days yet");
     expect(document.body.textContent).toContain("#writing");
+    // Habits: one at a time, chosen with the picker
+    await go("#/settings");
+    await type(document.querySelector<HTMLInputElement>('input[placeholder="New habit"]')!, "Exercise");
+    await act(async () => document.querySelector<HTMLInputElement>('input[placeholder="New habit"]')!.form!.requestSubmit());
+    await go("#/stats");
+    expect(document.querySelectorAll(".habit-heat").length).toBe(1);
+    expect(document.querySelector(".habit-heat")!.textContent).toContain("This week 1 of 3");
+    await act(async () => byText(".habit-picker button", "Exercise")!.click());
+    expect(document.querySelector(".habit-heat")!.textContent).toContain("This week 0 of 3");
     expect(document.querySelector('.cell.l4[role="button"]')).not.toBeNull();
   });
 });

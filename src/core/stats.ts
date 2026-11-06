@@ -180,3 +180,22 @@ export function projectGrowth(data: Data, projectId: string, today: Day): { day:
   }
   return out;
 }
+
+/** Actual time recorded ("took") on tasks finished that day, and how many finished tasks have no time. */
+export function timeSpent(data: Data, day: Day): { minutes: number; missing: number } {
+  let minutes = 0;
+  let missing = 0;
+  for (const t of data.tasks) {
+    if (t.status !== "done" || t.doneOn !== day) continue;
+    if (t.took == null) missing++;
+    else minutes += t.took;
+  }
+  return { minutes, missing };
+}
+
+/** Days a habit was done in the last `weeks` weeks (up to today), and the weekly average. */
+export function habitSummary(data: Data, habitId: string, day: Day, weeks = 12): { days: number; perWeek: number } {
+  let days = 0;
+  for (let i = 0; i < weeks * 7; i++) if (data.habitLog[addDays(day, -i)]?.includes(habitId)) days++;
+  return { days, perWeek: days / weeks };
+}
