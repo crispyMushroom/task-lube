@@ -70,6 +70,17 @@ export async function readFile(c: RepoConfig): Promise<{ text: string; sha: stri
   if (res.status === 404) {
     // Distinguish "file missing" from "repo not accessible"
     const repo = await fetch(`${API}/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}`, { headers: headers(c.token), cache: "no-store" });
+    if (repo.status === 404) {
+      // The token works but can't see the repo. Say whose token it is, which is the usual mix-up.
+      const me = await fetch(`${API}/user`, { headers: headers(c.token), cache: "no-store" });
+      const login = me.ok ? (await me.json()).login : null;
+      throw new GitHubError(
+        login && login.toLowerCase() !== c.owner.toLowerCase()
+          ? `This token belongs to ${login}, so it can't see ${c.owner}/${c.repo}. Create the token while signed in as ${c.owner}.`
+          : `This token can't see ${c.owner}/${c.repo}. In the token's settings, set Repository access to "Only select repositories" and include ${c.repo}, or check the repo name.`,
+        404
+      );
+    }
     if (!repo.ok) await fail(repo);
     return null;
   }
