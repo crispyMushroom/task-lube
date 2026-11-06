@@ -1,12 +1,12 @@
 /**
- * Logger CLI: how Claude (or you) reads and changes Logger data from a terminal.
+ * TaskLube CLI (tl): how an agent (or you) reads and changes TaskLube data from a terminal.
  * It applies changes through the same rules as the app, so the daily record stays consistent.
  *
- *   npm run logger -- show today|week|projects|project <name>|inbox|record [days]|habits|tasks <text>
- *   npm run logger -- apply '<action JSON or array>' [-m "message"] [--no-git] [--as-me]
+ *   npm run tl -- show today|week|projects|project <name>|inbox|record [days]|habits|tasks <text>
+ *   npm run tl -- apply '<action JSON or array>' [-m "message"] [--no-git] [--as-me]
  *   (new tasks/projects are tagged by: "claude" unless --as-me)
  *
- * Data file: --data <path>, or $LOGGER_DATA, default ~/Co-Projects/logger-data/logger.json
+ * Data file: --data <path>, or $TL_DATA, default ~/Co-Projects/tl-data/logger.json
  * With git: pulls first, then commits ("claude: …" by default) and pushes. If the push is
  * rejected because the app saved meanwhile, it pulls and re-applies the actions.
  */
@@ -34,7 +34,7 @@ function bool(name: string): boolean {
   return true;
 }
 
-const dataPath = resolve((flag("--data") ?? process.env.LOGGER_DATA ?? `${homedir()}/Co-Projects/logger-data/logger.json`).replace(/^~/, homedir()));
+const dataPath = resolve((flag("--data") ?? process.env.TL_DATA ?? process.env.LOGGER_DATA ?? `${homedir()}/Co-Projects/tl-data/logger.json`).replace(/^~/, homedir()));
 const message = flag("-m");
 const noGit = bool("--no-git");
 const asMe = bool("--as-me"); // don't tag new tasks/projects as created by Claude
@@ -212,7 +212,7 @@ function applyCmd(json: string) {
     if (!remote) break;
     try {
       // Test hook: simulate another device saving between our pull and push
-      if (attempt === 0 && process.env.LOGGER_TEST_BEFORE_PUSH) execFileSync("sh", ["-c", process.env.LOGGER_TEST_BEFORE_PUSH], { stdio: "ignore" });
+      if (attempt === 0 && process.env.TL_TEST_BEFORE_PUSH) execFileSync("sh", ["-c", process.env.TL_TEST_BEFORE_PUSH], { stdio: "ignore" });
       git("push", "--quiet", "-u", "origin", "HEAD");
       break;
     } catch {

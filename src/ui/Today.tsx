@@ -2,10 +2,10 @@ import { addDays, fmtDay, relDay } from "../core/dates";
 import { fmtMinutes, isOpen, type Task } from "../core/model";
 import { carriedOver, dayStats, habitWeek, plannedEstimate, projectSummary } from "../core/stats";
 import { Bar, Empty, QuickAdd, Section, TaskRow } from "./common";
-import { go, useLogger } from "./context";
+import { go, useTaskLube } from "./context";
 
 export function Today() {
-  const { data, dispatch, day } = useLogger();
+  const { data, dispatch, day } = useTaskLube();
   const rec = data.days[day];
   const st = dayStats(rec);
   const est = plannedEstimate(rec);

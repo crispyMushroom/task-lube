@@ -13,7 +13,7 @@ export interface UiApi {
 export const StoreContext = createContext<Store | null>(null);
 export const UiContext = createContext<UiApi | null>(null);
 
-export function useLogger(): { data: Data; status: SyncStatus; dispatch: (a: ActionInput) => void; day: string; store: Store } {
+export function useTaskLube(): { data: Data; status: SyncStatus; dispatch: (a: ActionInput) => void; day: string; store: Store } {
   const store = useContext(StoreContext)!;
   const data = useSyncExternalStore(store.subscribe, () => store.view);
   const status = useSyncExternalStore(store.subscribe, () => store.status);

@@ -151,3 +151,13 @@ describe("idempotent adds", () => {
     expect(d.tasks.filter((t) => t.id === "dup").length).toBe(1);
   });
 });
+
+describe("replay safety", () => {
+  it("stamp assigns ids once, so replaying gives the same task", async () => {
+    const { stamp } = await import("./actions");
+    const a = stamp({ type: "addTask", task: { title: "Replayed" } });
+    const first = apply(emptyData(), a);
+    const second = apply(emptyData(), a);
+    expect(first.tasks[0].id).toBe(second.tasks[0].id);
+  });
+});

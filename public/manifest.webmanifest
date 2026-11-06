@@ -1,6 +1,6 @@
 {
-  "name": "Logger",
-  "short_name": "Logger",
+  "name": "TaskLube",
+  "short_name": "TaskLube",
   "description": "A neutral record of what you planned and what you did.",
   "start_url": "./#/today",
   "scope": "./",

@@ -3,12 +3,12 @@ import { fmtDay, relDay } from "../core/dates";
 import { VERSIONS, type Project, type ProjectStatus, type Task } from "../core/model";
 import { projectSummary } from "../core/stats";
 import { Empty, QuickAdd, Section, TaskRow } from "./common";
-import { go, useLogger } from "./context";
+import { go, useTaskLube } from "./context";
 
 const STATUSES: ProjectStatus[] = ["active", "paused", "submitted", "done", "dropped"];
 
 export function ProjectList() {
-  const { data, dispatch, day } = useLogger();
+  const { data, dispatch, day } = useTaskLube();
   const [showAll, setShowAll] = useState(false);
   const list = data.projects
     .filter((p) => showAll || p.status === "active" || p.status === "paused")
@@ -64,13 +64,13 @@ function Tree({ tasks, all, depth = 0 }: { tasks: Task[]; all: Task[]; depth?: n
 }
 
 export function ProjectPage({ id }: { id: string }) {
-  const { data, dispatch, day } = useLogger();
+  const { data, dispatch, day } = useTaskLube();
   const p = data.projects.find((x) => x.id === id);
   if (!p) return <div className="page"><Empty>This project doesn't exist anymore.</Empty></div>;
   return <ProjectForm key={p.id} p={p} data={data} dispatch={dispatch} day={day} />;
 }
 
-function ProjectForm({ p, data, dispatch, day }: { p: Project; data: ReturnType<typeof useLogger>["data"]; dispatch: ReturnType<typeof useLogger>["dispatch"]; day: string }) {
+function ProjectForm({ p, data, dispatch, day }: { p: Project; data: ReturnType<typeof useTaskLube>["data"]; dispatch: ReturnType<typeof useTaskLube>["dispatch"]; day: string }) {
   const [name, setName] = useState(p.name);
   const [goal, setGoal] = useState(p.goal ?? "");
   const [links, setLinks] = useState(p.links ?? "");

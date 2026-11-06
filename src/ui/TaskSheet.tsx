@@ -2,7 +2,7 @@ import { useState } from "react";
 import { addDays } from "../core/dates";
 import { fmtMinutes, parseDuration, VERSIONS, type Task, type TaskStatus, type Version } from "../core/model";
 import { Dialog, EstPicker, TaskRow } from "./common";
-import { useLogger } from "./context";
+import { useTaskLube } from "./context";
 
 const STATUSES: { id: TaskStatus; label: string }[] = [
   { id: "todo", label: "To do" },
@@ -12,7 +12,7 @@ const STATUSES: { id: TaskStatus; label: string }[] = [
 ];
 
 export function TaskSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
-  const { data, dispatch, day } = useLogger();
+  const { data, dispatch, day } = useTaskLube();
   const task = id ? data.tasks.find((t) => t.id === id) : undefined;
   return (
     <Dialog open={!!task} onClose={onClose} title="Task" wide>
@@ -21,8 +21,8 @@ export function TaskSheet({ id, onClose }: { id: string | null; onClose: () => v
   );
 }
 
-function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () => void; dispatch: ReturnType<typeof useLogger>["dispatch"]; day: string }) {
-  const { data } = useLogger();
+function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () => void; dispatch: ReturnType<typeof useTaskLube>["dispatch"]; day: string }) {
+  const { data } = useTaskLube();
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes ?? "");
   const [took, setTook] = useState(task.took != null ? fmtMinutes(task.took) : "");
@@ -179,7 +179,7 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
 }
 
 export function TookDialog({ task, onClose }: { task: Task | null; onClose: () => void }) {
-  const { dispatch } = useLogger();
+  const { dispatch } = useTaskLube();
   const [other, setOther] = useState("");
   const finish = (took?: number) => {
     if (task) dispatch({ type: "setStatus", id: task.id, status: "done", ...(took ? { took } : {}) });

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { isOpen } from "../core/model";
 import { Empty, Section, TaskRow } from "./common";
-import { useLogger } from "./context";
+import { useTaskLube } from "./context";
 
 export function Inbox() {
-  const { data, dispatch } = useLogger();
+  const { data, dispatch } = useTaskLube();
   const [dump, setDump] = useState("");
   const items = data.tasks.filter((t) => t.projectId === null && !t.parentId && isOpen(t)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const projects = data.projects.filter((p) => p.status === "active");

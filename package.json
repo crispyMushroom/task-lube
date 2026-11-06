@@ -1,16 +1,16 @@
 {
-  "name": "logger",
+  "name": "tasklube",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Logger: a neutral record of planned vs done tasks, habits and deadlines.",
+  "description": "TaskLube: a neutral record of planned vs done tasks, habits and deadlines.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p . && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p .",
-    "logger": "tsx scripts/logger.ts"
+    "tl": "tsx scripts/tl.ts"
   },
   "dependencies": {
     "react": "18.3.1",

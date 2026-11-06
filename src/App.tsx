@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Task } from "./core/model";
 import { loadConfig, Store, type Config } from "./sync/store";
-import { StoreContext, UiContext, useHash, useLogger, type UiApi } from "./ui/context";
+import { StoreContext, UiContext, useHash, useTaskLube, type UiApi } from "./ui/context";
 import { Inbox } from "./ui/Inbox";
 import { ProjectList, ProjectPage } from "./ui/Projects";
 import { Settings, Setup } from "./ui/Settings";
@@ -34,7 +34,7 @@ function Connected({ config }: { config: Config }) {
 }
 
 function Shell({ config }: { config: Config }) {
-  const { data, status, dispatch, store } = useLogger();
+  const { data, status, dispatch, store } = useTaskLube();
   const [route, ...rest] = useHash();
   const tab = route || "today";
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -69,7 +69,7 @@ function Shell({ config }: { config: Config }) {
     <UiContext.Provider value={ui}>
       <header className="top">
         <a className="brand" href="#/today">
-          Logger
+          TaskLube
         </a>
         <nav className="tabs">
           {TABS.map((t) => (

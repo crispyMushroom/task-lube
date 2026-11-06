@@ -3,7 +3,7 @@ import { addDays, fmtDay, parseDay, weekStart } from "../core/dates";
 import { fmtMinutes } from "../core/model";
 import { dayStats, estimateReport, projectGrowth, recentAverage } from "../core/stats";
 import { Dialog, Empty, Section, projectName } from "./common";
-import { useLogger, useUi } from "./context";
+import { useTaskLube, useUi } from "./context";
 
 interface Cell {
   cls: string;
@@ -13,7 +13,7 @@ interface Cell {
 
 /** Git-style grid: columns are weeks (Mon–Sun), newest on the right. */
 function Heatmap({ weeks, cell, legend }: { weeks: number; cell: (day: string) => Cell; legend?: ReactNode }) {
-  const { day } = useLogger();
+  const { day } = useTaskLube();
   const start = addDays(weekStart(day), -(weeks - 1) * 7);
   const cols = Array.from({ length: weeks }, (_, w) => addDays(start, w * 7));
   let lastMonth = -1;
@@ -49,7 +49,7 @@ function Heatmap({ weeks, cell, legend }: { weeks: number; cell: (day: string) =
 }
 
 export function Stats() {
-  const { data, day } = useLogger();
+  const { data, day } = useTaskLube();
   const { openDay } = useUi();
   const avg = recentAverage(data, day);
   const est = estimateReport(data, day);
@@ -165,7 +165,7 @@ function Growth({ name, points }: { name: string; points: { day: string; total: 
 }
 
 export function DayDialog({ day, onClose }: { day: string | null; onClose: () => void }) {
-  const { data } = useLogger();
+  const { data } = useTaskLube();
   const rec = day ? data.days[day] : undefined;
   const st = dayStats(rec);
   const habits = day ? (data.habitLog[day] ?? []).map((id) => data.habits.find((h) => h.id === id)?.name ?? id) : [];

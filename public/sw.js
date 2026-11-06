@@ -1,5 +1,5 @@
-// App shell cache so Logger opens offline. Data always comes from GitHub (never cached here).
-const CACHE = "logger-v1";
+// App shell cache so TaskLube opens offline. Data always comes from GitHub (never cached here).
+const CACHE = "tasklube-v1";
 self.addEventListener("install", (e) => self.skipWaiting());
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

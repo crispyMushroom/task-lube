@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fmtDay, relDay } from "../core/dates";
 import { fmtMinutes, parseDuration, type Data, type Task } from "../core/model";
-import { useLogger, useUi } from "./context";
+import { useTaskLube, useUi } from "./context";
 
 export const EST_CHOICES = [15, 30, 60, 120];
 
@@ -42,7 +42,7 @@ export function TaskRow({
   actions?: ReactNode;
   depth?: number;
 }) {
-  const { data, day } = useLogger();
+  const { data, day } = useTaskLube();
   const { openTask } = useUi();
   const chips: string[] = [];
   if (showProject) chips.push(projectName(data, task.projectId));

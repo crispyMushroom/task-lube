@@ -23,8 +23,16 @@ export type Action =
 
 export type ActionInput = Action extends infer A ? (A extends { at: string } ? Omit<A, "at"> & { at?: string } : never) : never;
 
+/**
+ * Fill in the timestamp, and ids for new items, once, when the action is created.
+ * Actions get replayed (after a save conflict), so `apply` must not invent ids or times itself.
+ */
 export function stamp(a: ActionInput, now: Date = new Date()): Action {
-  return { ...a, at: a.at ?? now.toISOString() } as Action;
+  const s = { ...a, at: a.at ?? now.toISOString() } as Action;
+  if (s.type === "addTask" && !s.task.id) s.task = { ...s.task, id: newId("t") };
+  if (s.type === "addProject" && !s.project.id) s.project = { ...s.project, id: newId("p") };
+  if (s.type === "addHabit" && !s.habit.id) s.habit = { ...s.habit, id: newId("h") };
+  return s;
 }
 
 function dayOf(iso: string): Day {

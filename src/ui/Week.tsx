@@ -3,10 +3,10 @@ import { addDays, fmtDay, weekDays, weekStart } from "../core/dates";
 import { fmtMinutes, isOpen, type Task } from "../core/model";
 import { dayStats } from "../core/stats";
 import { Empty, Section, TaskRow, projectName } from "./common";
-import { useLogger } from "./context";
+import { useTaskLube } from "./context";
 
 export function Week() {
-  const { data, dispatch, day } = useLogger();
+  const { data, dispatch, day } = useTaskLube();
   const [offset, setOffset] = useState(0);
   const start = addDays(weekStart(day), offset * 7);
   const days = weekDays(start);

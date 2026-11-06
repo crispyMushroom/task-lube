@@ -2,10 +2,10 @@ import { useState } from "react";
 import { readFile } from "../sync/github";
 import { saveConfig, type Config } from "../sync/store";
 import { Section } from "./common";
-import { useLogger } from "./context";
+import { useTaskLube } from "./context";
 
 export function Settings({ config }: { config: Config }) {
-  const { data, dispatch, store } = useLogger();
+  const { data, dispatch, store } = useTaskLube();
   const [name, setName] = useState("");
   const [target, setTarget] = useState(3);
 
@@ -84,7 +84,7 @@ export function Settings({ config }: { config: Config }) {
               const blob = new Blob([store.exportJson()], { type: "application/json" });
               const a = document.createElement("a");
               a.href = URL.createObjectURL(blob);
-              a.download = `logger-${new Date().toISOString().slice(0, 10)}.json`;
+              a.download = `tasklube-${new Date().toISOString().slice(0, 10)}.json`;
               a.click();
             }}
           >
@@ -110,7 +110,7 @@ export function Settings({ config }: { config: Config }) {
 
 export function Setup({ onDone }: { onDone: (c: Config) => void }) {
   const [owner, setOwner] = useState("");
-  const [repo, setRepo] = useState("logger-data");
+  const [repo, setRepo] = useState("tl-data");
   const [branch, setBranch] = useState("main");
   const [path, setPath] = useState("logger.json");
   const [token, setToken] = useState("");
@@ -119,7 +119,7 @@ export function Setup({ onDone }: { onDone: (c: Config) => void }) {
 
   return (
     <div className="setup">
-      <h1>Logger</h1>
+      <h1>TaskLube</h1>
       <p>A neutral record of what you planned and what you did.</p>
       <div className="card">
         <h2>Connect your data repo</h2>

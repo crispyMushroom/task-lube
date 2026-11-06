@@ -13,6 +13,8 @@ export type SyncStatus =
   | { kind: "offline"; message: string }
   | { kind: "error"; message: string };
 
+// Storage keys and the default data file name keep the app's original name ("Logger") so
+// devices that were already connected stay connected.
 const CONFIG_KEY = "logger.config";
 const CACHE_KEY = "logger.cache";
 const FLUSH_DELAY = 1200; // ms; batches quick changes into one commit
@@ -176,7 +178,7 @@ export class Store {
       for (let attempt = 0; attempt < 4; attempt++) {
         const batch = this.pending.slice();
         const next = applyAll(this.base, batch);
-        const msg = `logger: ${describe(batch[0], this.base)}${batch.length > 1 ? ` (+${batch.length - 1} more)` : ""}`;
+        const msg = `tl: ${describe(batch[0], this.base)}${batch.length > 1 ? ` (+${batch.length - 1} more)` : ""}`;
         try {
           this.sha = await writeFile(config, serialize(next), this.sha, msg);
           this.base = next;
