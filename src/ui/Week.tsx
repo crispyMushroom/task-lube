@@ -21,7 +21,7 @@ export function Week() {
     if (!cards.length) return;
     const i = cards.findIndex((c) => c.classList.contains("is-today"));
     const target = cards[i <= 0 ? 0 : i - 1];
-    el.scrollTo({ left: target.offsetLeft - cards[0].offsetLeft, behavior: "instant" as ScrollBehavior });
+    el.scrollLeft = target.offsetLeft - cards[0].offsetLeft;
   }, [start]);
 
   const unscheduled = data.tasks.filter((t) => isOpen(t) && !t.scheduled && !data.tasks.some((s) => s.parentId === t.id && isOpen(s)));
