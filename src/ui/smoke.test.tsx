@@ -81,7 +81,13 @@ describe("app smoke test (local mode)", () => {
     // Week, Record, Settings render; add a habit and log it
     await go("#/week");
     expect(document.body.textContent).toContain("Not scheduled");
-    expect(document.querySelector(".week-day.is-today .week-day-head")!.textContent).toContain("spent 1.5h");
+    const todayCard = document.querySelector<HTMLButtonElement>(".week-card.is-today")!;
+    expect(todayCard.textContent).toContain("1/1");
+    expect(todayCard.textContent).toContain("spent 1.5h");
+    expect(todayCard.textContent).not.toContain("Write the email template"); // summary only
+    await act(async () => todayCard.click());
+    expect(document.querySelector("dialog[open]")!.textContent).toContain("Write the email template");
+    await act(async () => document.querySelector<HTMLButtonElement>("dialog[open] .icon-btn")!.click());
     await go("#/settings");
     await type(document.querySelector<HTMLInputElement>('input[placeholder="New habit"]')!, "Meditation");
     await act(async () => document.querySelector<HTMLInputElement>('input[placeholder="New habit"]')!.form!.requestSubmit());
