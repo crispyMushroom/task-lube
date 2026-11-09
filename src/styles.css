@@ -764,3 +764,18 @@ code {
   color: var(--muted);
   font-weight: 500;
 }
+
+/* Past day view: "check off as done on that day" switch */
+.on-day-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.on-day-toggle input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}

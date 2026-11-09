@@ -1,9 +1,27 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { addDays, fmtDay, weekDays, weekStart } from "../core/dates";
+import { canBackdate } from "../core/days";
 import { fmtMinutes, isOpen, type Task } from "../core/model";
 import { dayStats, timeSpent } from "../core/stats";
 import { Bar, Dialog, Empty, Section, TaskRow, projectName } from "./common";
-import { useTaskLube } from "./context";
+import { CompleteOnContext, useTaskLube } from "./context";
+
+// Per-device preference for the past-day toggle; on unless turned off
+const ON_DAY_KEY = "tasklube.checkOffOnDay";
+function readOnDayPref(): boolean {
+  try {
+    return localStorage.getItem(ON_DAY_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+function saveOnDayPref(on: boolean) {
+  try {
+    localStorage.setItem(ON_DAY_KEY, on ? "on" : "off");
+  } catch {
+    // not saved; the toggle still works for this session
+  }
+}
 
 export function Week() {
   const { data, dispatch, day } = useTaskLube();
@@ -127,10 +145,15 @@ function DayCard({ d, onOpen }: { d: string; onOpen: () => void }) {
   );
 }
 
-/** Everything for one day: planned tasks (can be checked off here) and other tasks finished that day. */
+/**
+ * Everything for one day: planned tasks (can be checked off here) and other tasks finished that day.
+ * On a past day, check-offs can count as done on that day (for tasks checked off late).
+ */
 function WeekDayDialog({ day: d, onClose }: { day: string | null; onClose: () => void }) {
   const { data, day } = useTaskLube();
+  const [onDayPref, setOnDayPref] = useState(readOnDayPref);
   if (!d) return <Dialog open={false} onClose={onClose} title="" children={null} />;
+  const canLogOnDay = canBackdate(d, day);
   const scheduled = data.tasks.filter((t) => t.scheduled === d).sort((a, b) => Number(!isOpen(a)) - Number(!isOpen(b)) || a.order - b.order);
   const finishedElsewhere = data.tasks.filter((t) => t.status === "done" && t.doneOn === d && t.scheduled !== d);
   const rec = data.days[d];
@@ -149,18 +172,33 @@ function WeekDayDialog({ day: d, onClose }: { day: string | null; onClose: () =>
           {spent.missing ? ` · ${spent.missing} finished without a time` : ""}
           {movedAway.length ? ` · ${movedAway.length} moved to another day` : ""}
         </p>
-        <div>
-          <h3>Planned</h3>
-          {scheduled.length ? scheduled.map((t) => <TaskRow key={t.id} task={t} showProject />) : <Empty>Nothing planned for this day.</Empty>}
-        </div>
-        {finishedElsewhere.length > 0 && (
-          <div>
-            <h3>Also finished this day</h3>
-            {finishedElsewhere.map((t) => (
-              <TaskRow key={t.id} task={t} showProject showDate />
-            ))}
-          </div>
+        {canLogOnDay && (
+          <label className="on-day-toggle small">
+            <input
+              type="checkbox"
+              checked={onDayPref}
+              onChange={(e) => {
+                setOnDayPref(e.target.checked);
+                saveOnDayPref(e.target.checked);
+              }}
+            />
+            Check off as done on {fmtDay(d, { weekday: "long" })}, not today
+          </label>
         )}
+        <CompleteOnContext.Provider value={canLogOnDay && onDayPref ? d : undefined}>
+          <div>
+            <h3>Planned</h3>
+            {scheduled.length ? scheduled.map((t) => <TaskRow key={t.id} task={t} showProject />) : <Empty>Nothing planned for this day.</Empty>}
+          </div>
+          {finishedElsewhere.length > 0 && (
+            <div>
+              <h3>Also finished this day</h3>
+              {finishedElsewhere.map((t) => (
+                <TaskRow key={t.id} task={t} showProject showDate />
+              ))}
+            </div>
+          )}
+        </CompleteOnContext.Provider>
       </div>
     </Dialog>
   );

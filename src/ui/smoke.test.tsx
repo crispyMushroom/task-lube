@@ -85,7 +85,16 @@ describe("app smoke test (local mode)", () => {
     expect(todayCard.textContent).toContain("1/1");
     expect(todayCard.textContent).toContain("spent 1.5h");
     expect(todayCard.textContent).not.toContain("Write the email template"); // summary only
+    // Today's view has no "done on that day" switch; a past day's view does
     await act(async () => todayCard.click());
+    expect(document.querySelector("dialog[open] .on-day-toggle")).toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>("dialog[open] .icon-btn")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Previous week"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".week-card")!.click());
+    expect(document.querySelector<HTMLInputElement>("dialog[open] .on-day-toggle input")!.checked).toBe(true);
+    await act(async () => document.querySelector<HTMLButtonElement>("dialog[open] .icon-btn")!.click());
+    await act(async () => byText("button", "This week")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".week-card.is-today")!.click());
     expect(document.querySelector("dialog[open]")!.textContent).toContain("Write the email template");
     await act(async () => document.querySelector<HTMLButtonElement>("dialog[open] .icon-btn")!.click());
     await go("#/settings");

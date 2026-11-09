@@ -81,3 +81,32 @@ export function referencedIds(days: Record<Day, DayRecord>): Set<string> {
   for (const r of Object.values(days)) for (const list of [r.planned, r.done, r.dropped, r.extra]) for (const id of list) s.add(id);
   return s;
 }
+
+/**
+ * How far back a completion can be logged on an earlier day. Day records this recent are
+ * always still in the main file (archiving starts at ARCHIVE_AFTER_DAYS = 90).
+ */
+export const MAX_BACKDATE_DAYS = 60;
+
+/** Whether `on` is an earlier day a completion can be logged on, seen from `today`. */
+export function canBackdate(on: Day | undefined, today: Day): on is Day {
+  return !!on && on < today && on >= addDays(today, -MAX_BACKDATE_DAYS);
+}
+
+/**
+ * Re-record one task on an earlier day, after its completion was logged late for that day
+ * or taken back from that day's view. This is the one case where a past day loses a
+ * completion: an explicit correction of that day. Mutates `data`.
+ */
+export function resettlePastDay(data: Data, day: Day, id: string): void {
+  const t = data.tasks.find((x) => x.id === id);
+  const rec = data.days[day] ?? emptyRecord();
+  rec.done = rec.done.filter((x) => x !== id);
+  rec.extra = rec.extra.filter((x) => x !== id);
+  if (t?.status === "done" && t.doneOn === day) {
+    if (rec.planned.includes(id)) rec.done = [...rec.done, id].sort();
+    else rec.extra = [...rec.extra, id].sort();
+  }
+  if (rec.planned.length || rec.extra.length || rec.dropped.length) data.days[day] = rec;
+  else delete data.days[day];
+}

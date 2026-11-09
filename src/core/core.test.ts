@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { apply, applyAll, type Action } from "./actions";
 import { isoWeek, weekStart } from "./dates";
+import { MAX_BACKDATE_DAYS } from "./days";
+import { ARCHIVE_AFTER_DAYS } from "./format";
 import { emptyData, fmtMinutes, parseDuration, type Data } from "./model";
 import { carriedCount, carriedOver, dayStats, estimateReport, habitWeek, projectSummary } from "./stats";
 
@@ -175,5 +177,68 @@ describe("time spent and habit summary", () => {
     d = apply(d, { type: "addHabit", at: at("2026-11-10"), habit: { id: "h", name: "Exercise", target: 3 } });
     for (const day of ["2026-11-03", "2026-11-05", "2026-11-10"]) d = apply(d, { type: "toggleHabit", at: at("2026-11-10"), habitId: "h", day });
     expect(habitSummary(d, "h", "2026-11-10", 2)).toEqual({ days: 3, perWeek: 1.5 });
+  });
+});
+
+describe("checking off on an earlier day", () => {
+  // a and b are planned for 11-10, c for 11-11; the app is next opened on 11-12
+  const opened = () => apply(apply(setup(), { type: "tick", at: at("2026-11-10", 9) }), { type: "tick", at: at("2026-11-12", 9) });
+
+  it("counts toward that day's plan when it was planned then", () => {
+    const d = apply(opened(), { type: "setStatus", at: at("2026-11-12", 10), id: "a", status: "done", took: 30, on: "2026-11-10" });
+    expect(d.tasks.find((t) => t.id === "a")).toMatchObject({ doneOn: "2026-11-10", took: 30 });
+    expect(dayStats(d.days["2026-11-10"])).toMatchObject({ planned: 2, done: 1 });
+    expect(d.days["2026-11-12"]?.extra ?? []).not.toContain("a");
+  });
+
+  it("shows as also done when it wasn't planned that day", () => {
+    const d = apply(opened(), { type: "setStatus", at: at("2026-11-12", 10), id: "c", status: "done", on: "2026-11-10" });
+    expect(d.days["2026-11-10"].extra).toEqual(["c"]);
+    expect(d.days["2026-11-11"].done).toEqual([]);
+  });
+
+  it("moves a completion from today to the earlier day", () => {
+    let d = apply(opened(), { type: "setStatus", at: at("2026-11-12", 10), id: "c", status: "done" });
+    expect(d.days["2026-11-12"].extra).toEqual(["c"]);
+    d = apply(d, { type: "setStatus", at: at("2026-11-12", 11), id: "c", status: "done", on: "2026-11-11" });
+    expect(d.days["2026-11-12"]?.extra ?? []).toEqual([]);
+    expect(d.days["2026-11-11"].done).toEqual(["c"]);
+  });
+
+  it("un-checking with the day takes it off that day's record", () => {
+    let d = apply(opened(), { type: "setStatus", at: at("2026-11-12", 10), id: "a", status: "done", on: "2026-11-10" });
+    d = apply(d, { type: "setStatus", at: at("2026-11-12", 11), id: "a", status: "todo", on: "2026-11-10" });
+    expect(d.days["2026-11-10"].done).toEqual([]);
+    expect(d.days["2026-11-10"].planned).toEqual(["a", "b"]);
+    // without the day, a past day keeps its completions as before
+    d = apply(d, { type: "setStatus", at: at("2026-11-12", 12), id: "a", status: "done", on: "2026-11-10" });
+    d = apply(d, { type: "setStatus", at: at("2026-11-12", 13), id: "a", status: "todo" });
+    expect(d.days["2026-11-10"].done).toEqual(["a"]);
+  });
+
+  it("an un-check on a day with nothing else leaves no empty record", () => {
+    let d = apply(opened(), { type: "setStatus", at: at("2026-11-12", 10), id: "c", status: "done", on: "2026-11-05" });
+    expect(d.days["2026-11-05"].extra).toEqual(["c"]);
+    d = apply(d, { type: "setStatus", at: at("2026-11-12", 11), id: "c", status: "todo", on: "2026-11-05" });
+    expect(d.days["2026-11-05"]).toBeUndefined();
+  });
+
+  it("ignores today, later days, and days too far back", () => {
+    for (const on of ["2026-11-12", "2026-11-14", "2026-08-01"]) {
+      const d = apply(opened(), { type: "setStatus", at: at("2026-11-12", 10), id: "a", status: "done", on });
+      expect(d.tasks.find((t) => t.id === "a")!.doneOn).toBe("2026-11-12");
+      expect(d.days["2026-11-12"].extra).toEqual(["a"]); // recorded as done today, as usual
+      expect(d.days["2026-11-10"].done).toEqual([]);
+      if (on !== "2026-11-12") expect(d.days[on]).toBeUndefined();
+    }
+  });
+
+  it("replays to the same result", () => {
+    const a: Action = { type: "setStatus", at: at("2026-11-12", 10), id: "a", status: "done", on: "2026-11-10" };
+    expect(apply(apply(opened(), a), a)).toEqual(apply(opened(), a));
+  });
+
+  it("never reaches days that may be archived", () => {
+    expect(MAX_BACKDATE_DAYS).toBeLessThan(ARCHIVE_AFTER_DAYS);
   });
 });

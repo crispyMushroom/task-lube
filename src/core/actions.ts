@@ -1,16 +1,19 @@
 import { today as todayOf, type Day } from "./dates";
-import { recordDay, referencedIds } from "./days";
+import { canBackdate, recordDay, referencedIds, resettlePastDay } from "./days";
 import { newId, type Data, type Habit, type Project, type Task } from "./model";
 
 /**
  * Every change to the data is an action. The app and the CLI both apply actions through
  * `apply`, so the daily record stays consistent no matter who made the change.
  * `at` is an ISO timestamp; the day it falls on is the day being recorded.
+ * `setStatus.on` logs a completion on an earlier day instead (for tasks checked off late), and
+ * with any other status takes the task off that day's record. It's ignored unless the day is
+ * before `at` and at most MAX_BACKDATE_DAYS back.
  */
 export type Action =
   | { type: "addTask"; at: string; task: Partial<Task> & { title: string } }
   | { type: "updateTask"; at: string; id: string; patch: Partial<Omit<Task, "id">> }
-  | { type: "setStatus"; at: string; id: string; status: Task["status"]; took?: number }
+  | { type: "setStatus"; at: string; id: string; status: Task["status"]; took?: number; on?: Day }
   | { type: "deleteTask"; at: string; id: string }
   | { type: "addProject"; at: string; project: Partial<Project> & { name: string } }
   | { type: "updateProject"; at: string; id: string; patch: Partial<Omit<Project, "id">> }
@@ -89,7 +92,7 @@ export function apply(input: Data, action: Action): Data {
       t.status = action.status;
       delete t.doneOn;
       delete t.droppedOn;
-      if (action.status === "done") t.doneOn = day;
+      if (action.status === "done") t.doneOn = canBackdate(action.on, day) ? action.on : day;
       if (action.status === "dropped") t.droppedOn = day;
       if (action.took != null) t.took = action.took;
       break;
@@ -154,6 +157,7 @@ export function apply(input: Data, action: Action): Data {
   }
 
   recordDay(data, day);
+  if (action.type === "setStatus" && canBackdate(action.on, day)) resettlePastDay(data, action.on, action.id);
   if (action.type === "deleteTask") {
     // A task deleted on the day it was planned isn't in the record anymore; drop its tombstone
     const refs = referencedIds(data.days);
@@ -175,7 +179,7 @@ export function describe(a: Action, data?: Data): string {
     case "updateTask":
       return `edit "${title(a.id)}" (${Object.keys(a.patch).join(", ")})`;
     case "setStatus":
-      return `${a.status} "${title(a.id)}"`;
+      return `${a.status} "${title(a.id)}"${a.on ? ` (for ${a.on})` : ""}`;
     case "deleteTask":
       return `delete "${title(a.id)}"`;
     case "addProject":

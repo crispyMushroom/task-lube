@@ -6,12 +6,15 @@ import type { Store, SyncStatus } from "../sync/store";
 
 export interface UiApi {
   openTask: (id: string) => void;
-  complete: (task: Task) => void;
+  /** Check off or un-check a task. `on`: log it on that earlier day (from a past day's view). */
+  complete: (task: Task, on?: string) => void;
   openDay: (day: string) => void;
 }
 
 export const StoreContext = createContext<Store | null>(null);
 export const UiContext = createContext<UiApi | null>(null);
+/** Set inside a past day's view when check-offs there should count for that day. */
+export const CompleteOnContext = createContext<string | undefined>(undefined);
 
 export function useTaskLube(): { data: Data; status: SyncStatus; dispatch: (a: ActionInput) => void; day: string; store: Store } {
   const store = useContext(StoreContext)!;

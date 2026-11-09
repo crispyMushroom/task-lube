@@ -38,15 +38,16 @@ function Shell({ config }: { config: Config }) {
   const [route, ...rest] = useHash();
   const tab = route || "today";
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [tookFor, setTookFor] = useState<Task | null>(null);
+  const [tookFor, setTookFor] = useState<{ task: Task; on?: string } | null>(null);
   const [day, setDay] = useState<string | null>(null);
 
   const ui: UiApi = {
     openTask: setTaskId,
     openDay: setDay,
-    complete: (t) => {
-      if (t.status === "done") dispatch({ type: "setStatus", id: t.id, status: "todo" });
-      else setTookFor(t);
+    complete: (t, on) => {
+      // Un-checking from a past day's view also takes it off the day it was logged on
+      if (t.status === "done") dispatch({ type: "setStatus", id: t.id, status: "todo", ...(on && t.doneOn ? { on: t.doneOn } : {}) });
+      else setTookFor({ task: t, on });
     },
   };
 
@@ -92,7 +93,7 @@ function Shell({ config }: { config: Config }) {
       {"message" in status && <div className={`banner banner-${status.kind}`}>{status.message}</div>}
       <main>{page}</main>
       <TaskSheet id={taskId} onClose={() => setTaskId(null)} />
-      <TookDialog task={tookFor} onClose={() => setTookFor(null)} />
+      <TookDialog task={tookFor?.task ?? null} on={tookFor?.on} onClose={() => setTookFor(null)} />
       <DayDialog day={day} onClose={() => setDay(null)} />
     </UiContext.Provider>
   );

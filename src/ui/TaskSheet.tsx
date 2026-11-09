@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { addDays } from "../core/dates";
+import { addDays, fmtDay } from "../core/dates";
 import { fmtMinutes, parseDuration, VERSIONS, type Task, type TaskStatus, type Version } from "../core/model";
 import { allTags } from "../core/stats";
 import { Dialog, EstPicker, TaskRow } from "./common";
@@ -181,11 +181,11 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
   );
 }
 
-export function TookDialog({ task, onClose }: { task: Task | null; onClose: () => void }) {
+export function TookDialog({ task, on, onClose }: { task: Task | null; on?: string; onClose: () => void }) {
   const { dispatch } = useTaskLube();
   const [other, setOther] = useState("");
   const finish = (took?: number) => {
-    if (task) dispatch({ type: "setStatus", id: task.id, status: "done", ...(took ? { took } : {}) });
+    if (task) dispatch({ type: "setStatus", id: task.id, status: "done", ...(took ? { took } : {}), ...(on ? { on } : {}) });
     setOther("");
     onClose();
   };
@@ -195,6 +195,7 @@ export function TookDialog({ task, onClose }: { task: Task | null; onClose: () =
         <div className="form">
           <p>{task.title}</p>
           {task.est != null && <p className="hint">Estimated {fmtMinutes(task.est)}</p>}
+          {on && <p className="hint">Counts as done on {fmtDay(on, { weekday: "long", month: "short", day: "numeric" })}</p>}
           <div className="chips-row">
             {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => (
               <button key={m} className="pill big" onClick={() => finish(m)}>

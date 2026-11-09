@@ -45,6 +45,7 @@ TaskLube (TL) is a static React PWA for tasks, projects, habits and a daily plan
 3. **Daily record semantics** (`days.ts`). Day records hold **task ids only**; titles come from the task, or from `deleted` (tombstones) for tasks deleted later. The UI and the user's understanding of their history depend on these:
    - **Planned only grows** during a day: any task whose `scheduled` equals that day is added. Moving a task later doesn't remove it. Deleting a task the same day does.
    - **Today stays live:** done and dropped can be undone. Past days only gain completions (settled once, when the next day starts).
+   - **Late check-offs:** `setStatus` with `on: <earlier day>` (up to `MAX_BACKDATE_DAYS` = 60 back) sets `doneOn` to that day and re-records the task there (`resettlePastDay`). It counts as done if it was planned that day, otherwise as `extra`. With a status other than done, `on` takes the task off that day's record. This is the one way a past day loses a completion, and the UI only sends it when un-checking from that past day's view (Week → tap a day, with "Check off as done on …" switched on).
    - **Skipped days** (up to 14) are backfilled from tasks still scheduled on them and marked `src: "backfilled"`.
    - **Done** = planned tasks with `status: "done"` and `doneOn` equal to that day. Tasks done without being planned go in `extra`, not in the %.
 4. **Format changes go through `format.ts`.**

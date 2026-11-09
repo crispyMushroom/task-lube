@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { fmtDay, relDay } from "../core/dates";
 import { fmtMinutes, parseDuration, type Data, type Task } from "../core/model";
-import { useTaskLube, useUi } from "./context";
+import { CompleteOnContext, useTaskLube, useUi } from "./context";
 
 export const EST_CHOICES = [15, 30, 60, 120];
 
@@ -12,6 +12,7 @@ export function projectName(data: Data, id: string | null | undefined): string {
 
 export function Check({ task }: { task: Task }) {
   const { complete } = useUi();
+  const on = useContext(CompleteOnContext);
   const cls = task.status === "done" ? "check is-done" : task.status === "dropped" ? "check is-dropped" : task.status === "doing" ? "check is-doing" : "check";
   return (
     <button
@@ -19,7 +20,7 @@ export function Check({ task }: { task: Task }) {
       aria-label={task.status === "done" ? "Mark not done" : "Mark done"}
       onClick={(e) => {
         e.stopPropagation();
-        complete(task);
+        complete(task, on);
       }}
     >
       {task.status === "done" ? "✓" : task.status === "dropped" ? "–" : ""}
