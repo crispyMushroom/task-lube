@@ -409,6 +409,11 @@ main {
 .check.is-dropped {
   color: var(--muted);
 }
+/* Deliverable at Submittable: half filled, still open for polishing */
+.check.is-half {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
+}
 
 /* ---------- today ---------- */
 
@@ -778,4 +783,16 @@ code {
   width: 16px;
   height: 16px;
   margin: 0;
+}
+
+/* A passed due date: its date in dull red (the one place red is used for not-done work) */
+.chip.past-due {
+  color: color-mix(in srgb, var(--danger) 70%, var(--muted));
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+.level-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }

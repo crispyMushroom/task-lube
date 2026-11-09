@@ -150,3 +150,20 @@ describe("tags and growth", () => {
     ]);
   });
 });
+
+describe("v3 (due resets, auto-drop, deliverables)", () => {
+  it("reads a v2 file and keeps the new task fields through save and load", () => {
+    const v2 = JSON.stringify({ version: 2, settings: { capacityHours: 5 }, projects: [], habits: [], habitLog: {}, days: {}, deleted: {}, lastDay: null, tasks: [{ id: "a", title: "A", createdAt: "2026-11-01" }] });
+    const d = parseData(v2);
+    expect(d.version).toBe(3);
+    expect(d.tasks[0]).toMatchObject({ status: "todo", version: "unsorted", projectId: null });
+    const t = { ...d.tasks[0], kind: "deliverable" as const, level: "submittable" as const, submittableOn: "2026-11-02", submittableTook: 30, dueResets: 2, autoDropped: true };
+    const back = parseData(serializeData({ ...d, tasks: [t] }));
+    expect(back.tasks[0]).toEqual(t);
+  });
+
+  it("an app that only knows v2 refuses a v3 file", () => {
+    expect(SCHEMA_VERSION).toBe(3);
+    expect(() => parseData(JSON.stringify({ version: 4 }))).toThrow(NewerFormatError);
+  });
+});

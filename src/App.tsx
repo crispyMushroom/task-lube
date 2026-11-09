@@ -6,7 +6,7 @@ import { Inbox } from "./ui/Inbox";
 import { ProjectList, ProjectPage } from "./ui/Projects";
 import { Settings, Setup } from "./ui/Settings";
 import { DayDialog, Stats } from "./ui/Stats";
-import { TaskSheet, TookDialog } from "./ui/TaskSheet";
+import { LevelDialog, TaskSheet, TookDialog, type TookRequest } from "./ui/TaskSheet";
 import { Today } from "./ui/Today";
 import { Week } from "./ui/Week";
 
@@ -38,7 +38,8 @@ function Shell({ config }: { config: Config }) {
   const [route, ...rest] = useHash();
   const tab = route || "today";
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [tookFor, setTookFor] = useState<{ task: Task; on?: string } | null>(null);
+  const [tookFor, setTookFor] = useState<TookRequest | null>(null);
+  const [levelFor, setLevelFor] = useState<{ task: Task; on?: string } | null>(null);
   const [day, setDay] = useState<string | null>(null);
 
   const ui: UiApi = {
@@ -47,7 +48,8 @@ function Shell({ config }: { config: Config }) {
     complete: (t, on) => {
       // Un-checking from a past day's view also takes it off the day it was logged on
       if (t.status === "done") dispatch({ type: "setStatus", id: t.id, status: "todo", ...(on && t.doneOn ? { on: t.doneOn } : {}) });
-      else setTookFor({ task: t, on });
+      else if (t.kind === "deliverable" && t.status !== "dropped") setLevelFor({ task: t, on });
+      else setTookFor({ task: t, on, make: (took) => ({ type: "setStatus", id: t.id, status: "done", ...(took ? { took } : {}), ...(on ? { on } : {}) }) });
     },
   };
 
@@ -93,7 +95,8 @@ function Shell({ config }: { config: Config }) {
       {"message" in status && <div className={`banner banner-${status.kind}`}>{status.message}</div>}
       <main>{page}</main>
       <TaskSheet id={taskId} onClose={() => setTaskId(null)} />
-      <TookDialog task={tookFor?.task ?? null} on={tookFor?.on} onClose={() => setTookFor(null)} />
+      <LevelDialog req={levelFor} onClose={() => setLevelFor(null)} askTook={setTookFor} />
+      <TookDialog req={tookFor} onClose={() => setTookFor(null)} />
       <DayDialog day={day} onClose={() => setDay(null)} />
     </UiContext.Provider>
   );

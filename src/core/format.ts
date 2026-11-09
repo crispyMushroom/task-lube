@@ -123,7 +123,7 @@ export function parseArchive(text: string, year: string): Archive {
 // ---------------------------------------------------------------- writing
 
 // Fields in a fixed, readable order (id and title first)
-const TASK_KEYS: (keyof Task)[] = ["id", "title", "projectId", "parentId", "version", "status", "scheduled", "due", "est", "took", "dread", "tags", "notes", "order", "createdAt", "doneOn", "droppedOn", "by"];
+const TASK_KEYS: (keyof Task)[] = ["id", "title", "projectId", "parentId", "version", "status", "scheduled", "due", "est", "took", "dread", "tags", "notes", "order", "createdAt", "doneOn", "droppedOn", "by", "kind", "level", "submittableOn", "submittableTook", "dueResets", "autoDropped"];
 
 /** Leave out values that are the default, so they don't take space. */
 function compactTask(t: Task): Partial<Task> {

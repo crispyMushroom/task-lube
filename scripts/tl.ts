@@ -31,8 +31,8 @@ import {
   splitArchive,
   withHistory,
 } from "../src/core/format";
-import { emptyData, fmtMinutes, isOpen, VERSIONS, type Archive, type Data, type Task } from "../src/core/model";
-import { carriedOver, dayStats, estimateReport, habitWeek, plannedEstimate, projectSummary, tagReport, timeSpent } from "../src/core/stats";
+import { DUE_SOON_DAYS, emptyData, fmtMinutes, isOpen, isPastDue, isPolishing, VERSIONS, type Archive, type Data, type Task } from "../src/core/model";
+import { carriedOver, dayStats, dueSoon, estimateReport, habitWeek, plannedEstimate, projectSummary, recentlyAutoDropped, tagReport, timeSpent } from "../src/core/stats";
 
 const args = process.argv.slice(2);
 function flag(name: string): string | undefined {
@@ -126,7 +126,10 @@ function line(t: Task, d: Data, opts: { project?: boolean } = {}) {
     t.est != null ? `est ${fmtMinutes(t.est)}` : "",
     t.took != null ? `took ${fmtMinutes(t.took)}` : "",
     t.scheduled ? `planned ${t.scheduled}` : "",
-    t.due ? `due ${t.due}` : "",
+    t.kind === "deliverable" ? `deliverable${t.level ? ` at ${t.level}${isPolishing(t) ? " (polishing)" : ""}` : ""}` : "",
+    t.due ? `due ${t.due}${isPastDue(t, day) ? " (passed)" : ""}` : "",
+    t.dueResets ? `due date reset ${t.dueResets}x` : "",
+    t.autoDropped && t.status === "dropped" ? "dropped automatically" : "",
     t.dread ? `dread ${t.dread}` : "",
     t.tags?.length ? t.tags.map((x) => "#" + x).join(" ") : "",
   ].filter(Boolean);
@@ -147,6 +150,10 @@ function show(d: Data, what: string, arg: string) {
       for (const s of ship) out.push(`Ship mode: ${s.project.name} (deadline ${s.project.deadline}), Submittable open: ${s.submittableOpen.length}`);
       const carried = carriedOver(d, day);
       if (carried.length) out.push("Carried over:", ...carried.map((c) => `  ${line(c.task, d, { project: true })} carried ${c.count}x`));
+      const due = dueSoon(d, day).filter((t) => !carried.some((c) => c.task.id === t.id));
+      if (due.length) out.push(`Due soon (next ${DUE_SOON_DAYS} days, and passed ones until dropped):`, ...due.map((t) => "  " + line(t, d, { project: true })));
+      const autoDropped = recentlyAutoDropped(d, day);
+      if (autoDropped.length) out.push("Dropped automatically (last 3 days):", ...autoDropped.map((t) => "  " + line(t, d, { project: true })));
       const habits = d.habits.filter((h) => !h.archived);
       if (habits.length) out.push("Habits this week: " + habits.map((h) => `${h.name} ${habitWeek(d, h.id, day)}/${h.target}${d.habitLog[day]?.includes(h.id) ? " (done today)" : ""}`).join(", "));
       break;

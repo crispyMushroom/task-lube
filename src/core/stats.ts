@@ -1,5 +1,5 @@
 import { addDays, weekStart, type Day } from "./dates";
-import { isOpen, shipMode, type Data, type DayRecord, type Project, type Task } from "./model";
+import { DUE_SOON_DAYS, isOpen, isPolishing, shipMode, type Data, type DayRecord, type Project, type Task } from "./model";
 
 export interface DayStats {
   planned: number;
@@ -26,7 +26,7 @@ export function carriedCount(data: Data, taskId: string, day: Day): number {
 
 export function carriedOver(data: Data, day: Day): { task: Task; count: number }[] {
   return data.tasks
-    .filter((t) => isOpen(t) && t.scheduled && t.scheduled < day)
+    .filter((t) => isOpen(t) && !isPolishing(t) && t.scheduled && t.scheduled < day)
     .sort((a, b) => (a.scheduled! < b.scheduled! ? -1 : 1))
     .map((task) => ({ task, count: Math.max(1, carriedCount(data, task.id, day)) }));
 }
@@ -181,16 +181,50 @@ export function projectGrowth(data: Data, projectId: string, today: Day): { day:
   return out;
 }
 
-/** Actual time recorded ("took") on tasks finished that day, and how many finished tasks have no time. */
+/**
+ * Actual time recorded ("took") on tasks finished that day, and how many finished tasks have no time.
+ * A deliverable's time is split: the Submittable part on the day it reached Submittable, the rest
+ * on the day it finished.
+ */
 export function timeSpent(data: Data, day: Day): { minutes: number; missing: number } {
   let minutes = 0;
   let missing = 0;
   for (const t of data.tasks) {
-    if (t.status !== "done" || t.doneOn !== day) continue;
-    if (t.took == null) missing++;
-    else minutes += t.took;
+    const subToday = t.submittableOn === day;
+    const doneToday = t.status === "done" && t.doneOn === day;
+    if (!subToday && !doneToday) continue;
+    const sub = t.submittableOn ? (t.submittableTook ?? 0) : 0;
+    if (subToday && t.submittableTook != null) minutes += t.submittableTook;
+    if (doneToday && t.took != null) minutes += t.took - sub;
+    const timed = (subToday && t.submittableTook != null) || (doneToday && t.took != null);
+    if (!timed) missing++;
   }
   return { minutes, missing };
+}
+
+/**
+ * "Due soon": open tasks due within DUE_SOON_DAYS (including passed due dates, until they're
+ * dropped), soonest first. Tasks planned for today are left out; they're in today's plan.
+ */
+export function dueSoon(data: Data, day: Day): Task[] {
+  const until = addDays(day, DUE_SOON_DAYS);
+  return data.tasks
+    .filter((t) => isOpen(t) && t.due && t.due <= until && t.scheduled !== day)
+    .sort((a, b) => (a.due! < b.due! ? -1 : a.due! > b.due! ? 1 : a.order - b.order));
+}
+
+/** Tasks the app dropped automatically in the last `days` days, newest first. */
+export function recentlyAutoDropped(data: Data, day: Day, days = 3): Task[] {
+  const since = addDays(day, -days);
+  return data.tasks
+    .filter((t) => t.status === "dropped" && t.autoDropped && t.droppedOn && t.droppedOn >= since)
+    .sort((a, b) => (a.droppedOn! < b.droppedOn! ? 1 : -1));
+}
+
+/** Open and total steps of a task, if it has any. */
+export function stepCount(data: Data, id: string): { open: number; total: number } | null {
+  const steps = data.tasks.filter((t) => t.parentId === id && t.status !== "dropped");
+  return steps.length ? { open: steps.filter(isOpen).length, total: steps.length } : null;
 }
 
 /** Days a habit was done in the last `weeks` weeks (up to today), and the weekly average. */

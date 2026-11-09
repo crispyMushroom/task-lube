@@ -51,7 +51,30 @@ export interface Task {
   droppedOn?: Day;
   /** "claude" when created by Claude (through the CLI). */
   by?: string;
+  /** Times the due date was moved (or cleared) after it had passed. Shown on the task. */
+  dueResets?: number;
+  /** Dropped by the app DUE_GRACE_DAYS after the due date, rather than by hand. */
+  autoDropped?: boolean;
+  /**
+   * "deliverable": finishes in two steps, Submittable then (optionally) Good. Reaching Submittable
+   * counts as done for that day; it stays open for polishing until Good or the due date.
+   * Absent: a check task, done or not done.
+   */
+  kind?: "deliverable";
+  /** Deliverables: the level reached. */
+  level?: Level;
+  /** Deliverables: the day Submittable was reached. */
+  submittableOn?: Day;
+  /** Deliverables: time recorded at Submittable (included in `took`). */
+  submittableTook?: number;
 }
+
+export type Level = "submittable" | "good";
+
+/** Tasks due within this many days show in "Due soon". */
+export const DUE_SOON_DAYS = 3;
+/** Open tasks are dropped automatically this many days after their due date, unless planned. */
+export const DUE_GRACE_DAYS = 5;
 
 export interface Habit {
   id: string;
@@ -61,7 +84,7 @@ export interface Habit {
 }
 
 /** Data format version. Bump with a migration in core/format.ts when the shape changes. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * What was planned and done on one day, as task ids. "planned" only grows during the day.
@@ -137,6 +160,21 @@ export function taskInfo(data: Data, id: string): { title: string; projectId: st
 
 export function isOpen(t: Task): boolean {
   return t.status === "todo" || t.status === "doing";
+}
+
+/** A deliverable that reached Submittable and is still open for optional polishing. */
+export function isPolishing(t: Task): boolean {
+  return t.kind === "deliverable" && t.level === "submittable" && isOpen(t);
+}
+
+/** Open and its due date has passed. */
+export function isPastDue(t: Task, day: string): boolean {
+  return isOpen(t) && !!t.due && t.due < day;
+}
+
+/** Whether the task counts as done for `day`: finished that day, or a deliverable reached Submittable that day. */
+export function countsDoneOn(t: Task, day: string): boolean {
+  return (t.status === "done" && t.doneOn === day) || t.submittableOn === day;
 }
 
 export function shipMode(p: Project, day: Day): boolean {

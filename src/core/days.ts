@@ -1,5 +1,5 @@
 import { addDays, type Day } from "./dates";
-import type { Data, DayRecord, Task } from "./model";
+import { countsDoneOn, type Data, type DayRecord, type Task } from "./model";
 
 const BACKFILL_DAYS = 14;
 
@@ -8,7 +8,8 @@ function emptyRecord(): DayRecord {
 }
 
 /**
- * Recompute done/dropped/extra for a day from current tasks.
+ * Recompute done/dropped/extra for a day from current tasks. "Done" includes deliverables
+ * that reached Submittable that day.
  * live = today (states can go back and forth); otherwise only additions are kept.
  */
 function settle(rec: DayRecord, day: Day, tasks: Task[], live: boolean) {
@@ -18,7 +19,7 @@ function settle(rec: DayRecord, day: Day, tasks: Task[], live: boolean) {
   for (const id of rec.planned) {
     const t = byId.get(id);
     if (!t) continue;
-    if (t.status === "done" && t.doneOn === day) done.add(id);
+    if (countsDoneOn(t, day)) done.add(id);
     else if (live) done.delete(id);
     if (t.status === "dropped") dropped.add(id);
     else if (live) dropped.delete(id);
@@ -27,7 +28,7 @@ function settle(rec: DayRecord, day: Day, tasks: Task[], live: boolean) {
   rec.dropped = [...dropped].sort();
   const planned = new Set(rec.planned);
   const extra = new Set(live ? [] : rec.extra);
-  for (const t of tasks) if (t.status === "done" && t.doneOn === day && !planned.has(t.id)) extra.add(t.id);
+  for (const t of tasks) if (countsDoneOn(t, day) && !planned.has(t.id)) extra.add(t.id);
   rec.extra = [...extra].sort();
 }
 
@@ -103,7 +104,7 @@ export function resettlePastDay(data: Data, day: Day, id: string): void {
   const rec = data.days[day] ?? emptyRecord();
   rec.done = rec.done.filter((x) => x !== id);
   rec.extra = rec.extra.filter((x) => x !== id);
-  if (t?.status === "done" && t.doneOn === day) {
+  if (t && countsDoneOn(t, day)) {
     if (rec.planned.includes(id)) rec.done = [...rec.done, id].sort();
     else rec.extra = [...rec.extra, id].sort();
   }

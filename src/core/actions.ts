@@ -1,6 +1,7 @@
 import { today as todayOf, type Day } from "./dates";
 import { canBackdate, recordDay, referencedIds, resettlePastDay } from "./days";
-import { newId, type Data, type Habit, type Project, type Task } from "./model";
+import { applyDueRules, autoDropDay } from "./due";
+import { isOpen, isPastDue, isPolishing, newId, type Data, type Habit, type Level, type Project, type Task } from "./model";
 
 /**
  * Every change to the data is an action. The app and the CLI both apply actions through
@@ -9,11 +10,15 @@ import { newId, type Data, type Habit, type Project, type Task } from "./model";
  * `setStatus.on` logs a completion on an earlier day instead (for tasks checked off late), and
  * with any other status takes the task off that day's record. It's ignored unless the day is
  * before `at` and at most MAX_BACKDATE_DAYS back.
+ * `setLevel` moves a deliverable to Submittable (stays open for polishing) or Good (finished),
+ * or with `null` back to not started. `on` works as for setStatus.
+ * After every action, `applyDueRules` drops or finishes tasks whose due date has passed (due.ts).
  */
 export type Action =
   | { type: "addTask"; at: string; task: Partial<Task> & { title: string } }
   | { type: "updateTask"; at: string; id: string; patch: Partial<Omit<Task, "id">> }
   | { type: "setStatus"; at: string; id: string; status: Task["status"]; took?: number; on?: Day }
+  | { type: "setLevel"; at: string; id: string; level: Level | null; took?: number; on?: Day }
   | { type: "deleteTask"; at: string; id: string }
   | { type: "addProject"; at: string; project: Partial<Project> & { name: string } }
   | { type: "updateProject"; at: string; id: string; patch: Partial<Omit<Project, "id">> }
@@ -55,6 +60,19 @@ function clean<T extends object>(o: T): T {
   return o;
 }
 
+/**
+ * Reopening a task the due rules would close straight away (a polished deliverable past its
+ * due date, or a task past its drop day) gives it a new due date of today, counted as a reset.
+ */
+function reopenPastDue(t: Task, day: Day) {
+  if (!isOpen(t) || !t.due) return;
+  const closes = isPolishing(t) ? t.due < day : autoDropDay(t.due) <= day && !(t.scheduled && t.scheduled >= day);
+  if (closes) {
+    t.due = day;
+    t.dueResets = (t.dueResets ?? 0) + 1;
+  }
+}
+
 /** Apply one action. Returns a new Data object (input is not mutated). */
 export function apply(input: Data, action: Action): Data {
   const data: Data = structuredClone(input);
@@ -82,19 +100,84 @@ export function apply(input: Data, action: Action): Data {
     case "updateTask": {
       const t = data.tasks.find((x) => x.id === action.id);
       if (!t) break;
+      const pastDue = isPastDue(t, day);
+      const oldDue = t.due;
       Object.assign(t, action.patch);
       clean(t);
+      if (pastDue) {
+        // A passed due date that's moved or cleared, or planning the task (which moves the due
+        // date to the planned day), counts as a reset. The count stays visible on the task.
+        if ("due" in action.patch) {
+          if (t.due !== oldDue) t.dueResets = (t.dueResets ?? 0) + 1;
+        } else if ("scheduled" in action.patch && t.scheduled && t.scheduled >= day) {
+          t.due = t.scheduled;
+          t.dueResets = (t.dueResets ?? 0) + 1;
+        }
+      }
+      if (t.kind !== "deliverable") {
+        delete t.level;
+        delete t.submittableOn;
+        delete t.submittableTook;
+      }
       break;
     }
     case "setStatus": {
       const t = data.tasks.find((x) => x.id === action.id);
       if (!t) break;
+      const wasDone = t.status === "done";
       t.status = action.status;
       delete t.doneOn;
       delete t.droppedOn;
+      delete t.autoDropped;
       if (action.status === "done") t.doneOn = canBackdate(action.on, day) ? action.on : day;
       if (action.status === "dropped") t.droppedOn = day;
-      if (action.took != null) t.took = action.took;
+      if (t.kind === "deliverable" && isOpen(t) && wasDone) {
+        // Reopening a finished deliverable goes back to polishing if it reached Submittable
+        if (t.submittableOn) {
+          t.level = "submittable";
+          if (t.submittableTook != null) t.took = t.submittableTook;
+        } else delete t.level;
+      }
+      if (action.took != null) {
+        // A deliverable's time adds up over its steps
+        const before = action.status === "done" && t.kind === "deliverable" && t.submittableOn ? (t.submittableTook ?? 0) : 0;
+        t.took = before + action.took;
+      }
+      reopenPastDue(t, day);
+      break;
+    }
+    case "setLevel": {
+      const t = data.tasks.find((x) => x.id === action.id);
+      if (!t) break;
+      const on = canBackdate(action.on, day) ? action.on : day;
+      if (action.level === null) {
+        if (t.submittableTook != null && t.took === t.submittableTook) delete t.took;
+        delete t.level;
+        delete t.submittableOn;
+        delete t.submittableTook;
+        if (t.status === "done") {
+          t.status = "todo";
+          delete t.doneOn;
+        }
+        break;
+      }
+      t.kind = "deliverable";
+      delete t.droppedOn;
+      delete t.autoDropped;
+      if (action.level === "submittable") {
+        t.level = "submittable";
+        t.submittableOn = on;
+        if (action.took != null) t.took = t.submittableTook = action.took;
+        if (!isOpen(t)) t.status = "todo";
+        delete t.doneOn;
+        // Past its due date there's no time left to polish; applyDueRules finishes it at Submittable
+      } else {
+        const before = t.submittableOn ? (t.submittableTook ?? 0) : 0;
+        t.level = "good";
+        t.status = "done";
+        t.doneOn = on;
+        if (action.took != null) t.took = before + action.took;
+      }
       break;
     }
     case "deleteTask": {
@@ -156,8 +239,9 @@ export function apply(input: Data, action: Action): Data {
       break;
   }
 
+  applyDueRules(data, day);
   recordDay(data, day);
-  if (action.type === "setStatus" && canBackdate(action.on, day)) resettlePastDay(data, action.on, action.id);
+  if ((action.type === "setStatus" || action.type === "setLevel") && canBackdate(action.on, day)) resettlePastDay(data, action.on, action.id);
   if (action.type === "deleteTask") {
     // A task deleted on the day it was planned isn't in the record anymore; drop its tombstone
     const refs = referencedIds(data.days);
@@ -180,6 +264,8 @@ export function describe(a: Action, data?: Data): string {
       return `edit "${title(a.id)}" (${Object.keys(a.patch).join(", ")})`;
     case "setStatus":
       return `${a.status} "${title(a.id)}"${a.on ? ` (for ${a.on})` : ""}`;
+    case "setLevel":
+      return `${a.level ?? "not started"} "${title(a.id)}"${a.on ? ` (for ${a.on})` : ""}`;
     case "deleteTask":
       return `delete "${title(a.id)}"`;
     case "addProject":

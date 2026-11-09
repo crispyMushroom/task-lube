@@ -1,9 +1,16 @@
 import { useState } from "react";
 import { addDays, fmtDay } from "../core/dates";
-import { fmtMinutes, parseDuration, VERSIONS, type Task, type TaskStatus, type Version } from "../core/model";
+import type { ActionInput } from "../core/actions";
+import { DUE_GRACE_DAYS, fmtMinutes, isPastDue, isPolishing, parseDuration, VERSIONS, type Level, type Task, type TaskStatus, type Version } from "../core/model";
 import { allTags } from "../core/stats";
 import { Dialog, EstPicker, TaskRow } from "./common";
 import { useTaskLube } from "./context";
+
+const LEVELS: [Level | null, string][] = [
+  [null, "Not yet"],
+  ["submittable", "Submittable"],
+  ["good", "Good"],
+];
 
 const STATUSES: { id: TaskStatus; label: string }[] = [
   { id: "todo", label: "To do" },
@@ -100,11 +107,67 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
         </div>
       </div>
 
-      <div className="grid2">
-        <label className="field">
-          <span className="label">Due</span>
+      <div className="field">
+        <span className="label">Due</span>
+        <div className="chips-row">
+          {[
+            ["Today", day],
+            ["Tomorrow", addDays(day, 1)],
+            ["In a week", addDays(day, 7)],
+          ].map(([label, d]) => (
+            <button key={label} className={task.due === d ? "pill is-on" : "pill"} onClick={() => patch({ due: d })}>
+              {label}
+            </button>
+          ))}
           <input type="date" value={task.due ?? ""} onChange={(e) => patch({ due: e.target.value || undefined })} />
-        </label>
+          {task.due && (
+            <button className="pill" onClick={() => patch({ due: undefined })}>
+              Clear
+            </button>
+          )}
+        </div>
+        {(task.dueResets || isPastDue(task, day)) && (
+          <span className="hint">
+            {isPastDue(task, day) && !(task.scheduled && task.scheduled >= day) ? `Drops automatically after ${fmtDay(addDays(task.due!, DUE_GRACE_DAYS))} unless planned or moved. ` : ""}
+            {task.dueResets ? `Due date reset ${task.dueResets}× after it passed.` : ""}
+          </span>
+        )}
+      </div>
+
+      <div className="grid2">
+        <div className="field">
+          <span className="label">Kind</span>
+          <div className="chips-row">
+            <button className={task.kind !== "deliverable" ? "pill is-on" : "pill"} onClick={() => patch({ kind: undefined })}>
+              Check
+            </button>
+            <button className={task.kind === "deliverable" ? "pill is-on" : "pill"} onClick={() => patch({ kind: "deliverable" })}>
+              Deliverable
+            </button>
+          </div>
+        </div>
+        {task.kind === "deliverable" && (
+          <div className="field">
+            <span className="label">Level</span>
+            <div className="chips-row">
+              {LEVELS.map(([id, label]) => (
+                <button
+                  key={label}
+                  className={(task.level ?? null) === id ? "pill is-on" : "pill"}
+                  onClick={() => (task.level ?? null) !== id && dispatch({ type: "setLevel", id: task.id, level: id })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {task.kind === "deliverable" && (
+        <p className="hint">Submittable counts as done for the day. It stays open for optional polishing until Good, or until the due date.</p>
+      )}
+
+      <div className="grid2">
         <div className="field">
           <span className="label">Dread (optional)</span>
           <div className="chips-row">
@@ -181,11 +244,76 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
   );
 }
 
-export function TookDialog({ task, on, onClose }: { task: Task | null; on?: string; onClose: () => void }) {
+/** A step that asks how long it took, then applies `make(took)`. */
+export interface TookRequest {
+  task: Task;
+  on?: string;
+  make: (took?: number) => ActionInput;
+  /** Shown above the time choices, e.g. "Submittable version". */
+  step?: string;
+}
+
+/** Choose a deliverable's step: Submittable, Good, finish as is, or undo Submittable. */
+export function LevelDialog({ req, onClose, askTook }: { req: { task: Task; on?: string } | null; onClose: () => void; askTook: (r: TookRequest) => void }) {
+  const { dispatch } = useTaskLube();
+  const task = req?.task;
+  const on = req?.on;
+  const polishing = !!task && isPolishing(task);
+  const withOn = on ? { on } : {};
+  const next = (step: string, make: TookRequest["make"]) => {
+    onClose();
+    askTook({ task: task!, on, make, step });
+  };
+  return (
+    <Dialog open={!!task} onClose={onClose} title={polishing ? "Submittable reached" : "Which version is done?"}>
+      {task && (
+        <div className="form">
+          <p>{task.title}</p>
+          {on && <p className="hint">Counts as done on {fmtDay(on, { weekday: "long", month: "short", day: "numeric" })}</p>}
+          <div className="level-choices">
+            {!polishing && (
+              <button className="btn primary" onClick={() => next("Submittable version", (took) => ({ type: "setLevel", id: task.id, level: "submittable", ...(took ? { took } : {}), ...withOn }))}>
+                Submittable version
+              </button>
+            )}
+            <button className={polishing ? "btn primary" : "btn"} onClick={() => next("Good version", (took) => ({ type: "setLevel", id: task.id, level: "good", ...(took ? { took } : {}), ...withOn }))}>
+              Good, finished
+            </button>
+            {polishing && (
+              <button className="btn" onClick={() => next("Polishing", (took) => ({ type: "setStatus", id: task.id, status: "done", ...(took ? { took } : {}), ...withOn }))}>
+                Finish as is
+              </button>
+            )}
+            {polishing && (
+              <button
+                className="btn"
+                onClick={() => {
+                  dispatch({ type: "setLevel", id: task.id, level: null, ...(on && task.submittableOn ? { on: task.submittableOn } : {}) });
+                  onClose();
+                }}
+              >
+                Not submittable yet
+              </button>
+            )}
+          </div>
+          <p className="hint">
+            {polishing
+              ? `Polishing is optional${task.due ? ` and ends ${fmtDay(task.due)}` : ""}.`
+              : "Submittable counts as done for the day. Polishing after that is optional."}
+          </p>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+export function TookDialog({ req, onClose }: { req: TookRequest | null; onClose: () => void }) {
   const { dispatch } = useTaskLube();
   const [other, setOther] = useState("");
+  const task = req?.task;
+  const on = req?.on;
   const finish = (took?: number) => {
-    if (task) dispatch({ type: "setStatus", id: task.id, status: "done", ...(took ? { took } : {}), ...(on ? { on } : {}) });
+    if (req) dispatch(req.make(took));
     setOther("");
     onClose();
   };
@@ -193,7 +321,10 @@ export function TookDialog({ task, on, onClose }: { task: Task | null; on?: stri
     <Dialog open={!!task} onClose={onClose} title="Took about how long?">
       {task && (
         <div className="form">
-          <p>{task.title}</p>
+          <p>
+            {task.title}
+            {req?.step ? <span className="muted"> · {req.step}</span> : null}
+          </p>
           {task.est != null && <p className="hint">Estimated {fmtMinutes(task.est)}</p>}
           {on && <p className="hint">Counts as done on {fmtDay(on, { weekday: "long", month: "short", day: "numeric" })}</p>}
           <div className="chips-row">

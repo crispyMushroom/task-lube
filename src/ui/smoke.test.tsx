@@ -118,5 +118,31 @@ describe("app smoke test (local mode)", () => {
     await act(async () => byText(".habit-picker button", "Exercise")!.click());
     expect(document.querySelector(".habit-heat")!.textContent).toContain("This week 0 of 3");
     expect(document.querySelector('.cell.l4[role="button"]')).not.toBeNull();
+
+    // Due soon: give an inbox task a due date tomorrow, make it a deliverable, reach Submittable
+    await go("#/inbox");
+    await act(async () => byText(".task-title", "email professor")!.click());
+    const dueField = [...document.querySelectorAll<HTMLElement>("dialog[open] .field")].find((f) => f.querySelector(".label")?.textContent === "Due")!;
+    await act(async () => [...dueField.querySelectorAll("button")].find((b) => b.textContent === "Tomorrow")!.click());
+    await act(async () => byText("dialog[open] button", "Deliverable")!.click());
+    expect(document.querySelector("dialog[open]")!.textContent).toContain("Submittable counts as done for the day");
+    await act(async () => byText("dialog[open] button", "Close")!.click());
+    await go("#/today");
+    const dueSection = byText("section", "Due soon")!;
+    expect(dueSection.textContent).toContain("email professor");
+    expect(dueSection.textContent).toContain("due tomorrow");
+    await act(async () => dueSection.querySelector<HTMLButtonElement>(".task-row .check")!.click());
+    expect(document.body.textContent).toContain("Which version is done?");
+    await act(async () => byText("dialog[open] button", "Submittable version")!.click());
+    expect(document.querySelector("dialog[open]")!.textContent).toContain("Submittable version");
+    await act(async () => byText("dialog[open] button", "30m")!.click());
+    const row = byText("section", "Due soon")!.querySelector(".task-row")!;
+    expect(row.querySelector(".check.is-half")).not.toBeNull();
+    expect(row.textContent).toContain("Submittable ✓");
+    // Its checkbox now offers Good / finish as is / undo
+    await act(async () => row.querySelector<HTMLButtonElement>(".check")!.click());
+    expect(document.querySelector("dialog[open]")!.textContent).toContain("Finish as is");
+    await act(async () => byText("dialog[open] button", "Not submittable yet")!.click());
+    expect(byText("section", "Due soon")!.querySelector(".check.is-half")).toBeNull();
   });
 });

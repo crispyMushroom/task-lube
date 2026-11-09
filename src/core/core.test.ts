@@ -3,8 +3,8 @@ import { apply, applyAll, type Action } from "./actions";
 import { isoWeek, weekStart } from "./dates";
 import { MAX_BACKDATE_DAYS } from "./days";
 import { ARCHIVE_AFTER_DAYS } from "./format";
-import { emptyData, fmtMinutes, parseDuration, type Data } from "./model";
-import { carriedCount, carriedOver, dayStats, estimateReport, habitWeek, projectSummary } from "./stats";
+import { emptyData, fmtMinutes, isPolishing, parseDuration, type Data } from "./model";
+import { carriedCount, carriedOver, dayStats, dueSoon, estimateReport, habitWeek, projectSummary, recentlyAutoDropped, timeSpent } from "./stats";
 
 // Noon local time on a given day, as ISO
 const at = (day: string, h = 12) => new Date(`${day}T${String(h).padStart(2, "0")}:00:00`).toISOString();
@@ -240,5 +240,134 @@ describe("checking off on an earlier day", () => {
 
   it("never reaches days that may be archived", () => {
     expect(MAX_BACKDATE_DAYS).toBeLessThan(ARCHIVE_AFTER_DAYS);
+  });
+});
+
+describe("due dates", () => {
+  // d is due 11-12, e due 11-20, f due 11-10; none planned
+  const withDue = () =>
+    applyAll(setup(), [
+      { type: "addTask", at: at("2026-11-09"), task: { id: "d", title: "D", due: "2026-11-12" } },
+      { type: "addTask", at: at("2026-11-09"), task: { id: "e", title: "E", due: "2026-11-20" } },
+      { type: "addTask", at: at("2026-11-09"), task: { id: "f", title: "F", due: "2026-11-10" } },
+    ]);
+  const task = (d: Data, id: string) => d.tasks.find((t) => t.id === id)!;
+
+  it("due soon lists the next 3 days and passed due dates, soonest first", () => {
+    const d = apply(withDue(), { type: "tick", at: at("2026-11-11") });
+    expect(dueSoon(d, "2026-11-11").map((t) => t.id)).toEqual(["f", "d"]);
+    const planned = apply(d, { type: "updateTask", at: at("2026-11-11"), id: "d", patch: { scheduled: "2026-11-11" } });
+    expect(dueSoon(planned, "2026-11-11").map((t) => t.id)).toEqual(["f"]);
+  });
+
+  it("drops an open task 5 days after its due date", () => {
+    let d = apply(withDue(), { type: "tick", at: at("2026-11-15") });
+    expect(task(d, "f").status).toBe("todo"); // due 11-10: 11-11..11-15 are the 5 days
+    d = apply(d, { type: "tick", at: at("2026-11-16") });
+    expect(task(d, "f")).toMatchObject({ status: "dropped", droppedOn: "2026-11-16", autoDropped: true });
+    expect(recentlyAutoDropped(d, "2026-11-16").map((t) => t.id)).toEqual(["f"]);
+  });
+
+  it("uses the drop day even when the app wasn't opened that day", () => {
+    const d = apply(withDue(), { type: "tick", at: at("2026-11-19") });
+    expect(task(d, "f").droppedOn).toBe("2026-11-16");
+  });
+
+  it("doesn't drop a task planned for today or later", () => {
+    let d = apply(withDue(), { type: "updateTask", at: at("2026-11-09"), id: "f", patch: { scheduled: "2026-11-18" } });
+    d = apply(d, { type: "tick", at: at("2026-11-17") });
+    expect(task(d, "f").status).toBe("todo");
+  });
+
+  it("planning a past-due task moves its due date to that day and counts a reset", () => {
+    let d = apply(withDue(), { type: "updateTask", at: at("2026-11-12"), id: "f", patch: { scheduled: "2026-11-13" } });
+    expect(task(d, "f")).toMatchObject({ due: "2026-11-13", dueResets: 1 });
+    // a new due date after it passed counts too; one set before it passed doesn't
+    d = apply(d, { type: "updateTask", at: at("2026-11-14"), id: "f", patch: { due: "2026-11-17" } });
+    expect(task(d, "f").dueResets).toBe(2);
+    d = apply(d, { type: "updateTask", at: at("2026-11-14"), id: "e", patch: { due: "2026-11-21" } });
+    expect(task(d, "e").dueResets).toBeUndefined();
+  });
+
+  it("reopening an auto-dropped task starts a new due date today", () => {
+    let d = apply(withDue(), { type: "tick", at: at("2026-11-16") });
+    d = apply(d, { type: "setStatus", at: at("2026-11-16", 13), id: "f", status: "todo" });
+    expect(task(d, "f")).toMatchObject({ status: "todo", due: "2026-11-16", dueResets: 1 });
+    expect(task(d, "f").autoDropped).toBeUndefined();
+  });
+
+  it("drops a task's open steps along with it", () => {
+    let d = apply(withDue(), { type: "addTask", at: at("2026-11-09"), task: { id: "f1", title: "F step", parentId: "f" } });
+    d = apply(d, { type: "tick", at: at("2026-11-16") });
+    expect(task(d, "f1")).toMatchObject({ status: "dropped", autoDropped: true });
+  });
+});
+
+describe("deliverables", () => {
+  const task = (d: Data, id: string) => d.tasks.find((t) => t.id === id)!;
+  // "a" is planned for 11-10; make it a deliverable due 11-12
+  const deliverable = () => apply(setup(), { type: "updateTask", at: at("2026-11-09"), id: "a", patch: { kind: "deliverable", due: "2026-11-12" } });
+
+  it("Submittable counts as done for the day and stays open for polishing", () => {
+    const d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable", took: 60 });
+    expect(task(d, "a")).toMatchObject({ status: "todo", level: "submittable", submittableOn: "2026-11-10", took: 60 });
+    expect(dayStats(d.days["2026-11-10"])).toMatchObject({ planned: 2, done: 1 });
+    expect(isPolishing(task(d, "a"))).toBe(true);
+    // the next day it isn't carried over: polishing is optional
+    expect(carriedOver(apply(d, { type: "tick", at: at("2026-11-11") }), "2026-11-11").map((c) => c.task.id)).toEqual(["b"]);
+  });
+
+  it("Good finishes it; time adds up and is split across the two days", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable", took: 60 });
+    d = apply(d, { type: "setLevel", at: at("2026-11-11"), id: "a", level: "good", took: 30 });
+    expect(task(d, "a")).toMatchObject({ status: "done", level: "good", doneOn: "2026-11-11", took: 90 });
+    expect(timeSpent(d, "2026-11-10").minutes).toBe(60);
+    expect(timeSpent(d, "2026-11-11").minutes).toBe(30);
+    expect(d.days["2026-11-11"].extra).toEqual(["a"]); // finished on a day it wasn't planned
+  });
+
+  it("finishes at Submittable once the due date has passed, without new record entries", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable", took: 60 });
+    d = apply(d, { type: "tick", at: at("2026-11-12") });
+    expect(task(d, "a").status).toBe("todo"); // polishing allowed through the due date
+    d = apply(d, { type: "tick", at: at("2026-11-13") });
+    expect(task(d, "a")).toMatchObject({ status: "done", level: "submittable", doneOn: "2026-11-10" });
+    expect(d.days["2026-11-13"]?.extra ?? []).toEqual([]);
+    expect(timeSpent(d, "2026-11-10").minutes).toBe(60);
+  });
+
+  it("finish as is adds the polishing time", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable", took: 60 });
+    d = apply(d, { type: "setStatus", at: at("2026-11-11"), id: "a", status: "done", took: 15 });
+    expect(task(d, "a")).toMatchObject({ status: "done", level: "submittable", took: 75 });
+  });
+
+  it("undoing Submittable takes it off the day", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable", took: 60 });
+    d = apply(d, { type: "setLevel", at: at("2026-11-10", 13), id: "a", level: null });
+    expect(task(d, "a").level).toBeUndefined();
+    expect(task(d, "a").took).toBeUndefined();
+    expect(d.days["2026-11-10"].done).toEqual([]);
+  });
+
+  it("reopening a Good deliverable goes back to polishing", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable", took: 60 });
+    d = apply(d, { type: "setLevel", at: at("2026-11-11"), id: "a", level: "good", took: 30 });
+    d = apply(d, { type: "setStatus", at: at("2026-11-11", 13), id: "a", status: "todo" });
+    expect(task(d, "a")).toMatchObject({ status: "todo", level: "submittable", took: 60 });
+  });
+
+  it("a deliverable past its due date isn't auto-dropped while it has a Submittable", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable" });
+    d = apply(d, { type: "tick", at: at("2026-11-20") });
+    expect(task(d, "a")).toMatchObject({ status: "done", level: "submittable" });
+    expect(task(d, "a").autoDropped).toBeUndefined();
+  });
+
+  it("switching back to a check task clears the level", () => {
+    let d = apply(deliverable(), { type: "setLevel", at: at("2026-11-10"), id: "a", level: "submittable" });
+    d = apply(d, { type: "updateTask", at: at("2026-11-10"), id: "a", patch: { kind: "" as never } });
+    expect(task(d, "a").level).toBeUndefined();
+    expect(task(d, "a").submittableOn).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { addDays, fmtDay, weekDays, weekStart } from "../core/dates";
 import { canBackdate } from "../core/days";
-import { fmtMinutes, isOpen, type Task } from "../core/model";
+import { countsDoneOn, fmtMinutes, isOpen, type Task } from "../core/model";
 import { dayStats, timeSpent } from "../core/stats";
 import { Bar, Dialog, Empty, Section, TaskRow, projectName } from "./common";
 import { CompleteOnContext, useTaskLube } from "./context";
@@ -44,7 +44,9 @@ export function Week() {
 
   const unscheduled = data.tasks.filter((t) => isOpen(t) && !t.scheduled && !data.tasks.some((s) => s.parentId === t.id && isOpen(s)));
   const groups = new Map<string, Task[]>();
-  for (const t of unscheduled) {
+  // Tasks with due dates first (soonest first), then the rest in their usual order
+  const byDue = (a: Task, b: Task) => (a.due ?? "9999") < (b.due ?? "9999") ? -1 : (a.due ?? "9999") > (b.due ?? "9999") ? 1 : a.order - b.order;
+  for (const t of [...unscheduled].sort(byDue)) {
     const key = t.projectId ?? "";
     groups.set(key, [...(groups.get(key) ?? []), t]);
   }
@@ -121,6 +123,7 @@ function DayCard({ d, onOpen }: { d: string; onOpen: () => void }) {
   const planned = rec?.planned ?? scheduled.length;
   const done = rec?.done ?? scheduled.filter((t) => t.status === "done").length;
   const past = d < day;
+  const dueCount = data.tasks.filter((t) => t.due === d && isOpen(t)).length;
 
   return (
     <button className={`week-card${d === day ? " is-today" : ""}${past ? " is-past" : ""}`} onClick={onOpen}>
@@ -140,7 +143,7 @@ function DayCard({ d, onOpen }: { d: string; onOpen: () => void }) {
       <span className={est > capMin ? "small over" : "small muted"}>
         est {fmtMinutes(est) || "0m"} of {data.settings.capacityHours}h
       </span>
-      <span className="small muted">{spent ? `spent ${fmtMinutes(spent)}` : " "}</span>
+      <span className="small muted">{[spent ? `spent ${fmtMinutes(spent)}` : "", dueCount ? `${dueCount} due` : ""].filter(Boolean).join(" · ") || " "}</span>
     </button>
   );
 }
@@ -155,7 +158,8 @@ function WeekDayDialog({ day: d, onClose }: { day: string | null; onClose: () =>
   if (!d) return <Dialog open={false} onClose={onClose} title="" children={null} />;
   const canLogOnDay = canBackdate(d, day);
   const scheduled = data.tasks.filter((t) => t.scheduled === d).sort((a, b) => Number(!isOpen(a)) - Number(!isOpen(b)) || a.order - b.order);
-  const finishedElsewhere = data.tasks.filter((t) => t.status === "done" && t.doneOn === d && t.scheduled !== d);
+  const finishedElsewhere = data.tasks.filter((t) => countsDoneOn(t, d) && t.scheduled !== d);
+  const dueHere = data.tasks.filter((t) => t.due === d && t.scheduled !== d && t.status !== "dropped" && !finishedElsewhere.includes(t));
   const rec = data.days[d];
   const movedAway = (rec?.planned ?? []).filter((id) => !scheduled.some((t) => t.id === id) && !rec!.done.includes(id));
   const spent = timeSpent(data, d);
@@ -190,6 +194,14 @@ function WeekDayDialog({ day: d, onClose }: { day: string | null; onClose: () =>
             <h3>Planned</h3>
             {scheduled.length ? scheduled.map((t) => <TaskRow key={t.id} task={t} showProject />) : <Empty>Nothing planned for this day.</Empty>}
           </div>
+          {dueHere.length > 0 && (
+            <div>
+              <h3>Due this day</h3>
+              {dueHere.map((t) => (
+                <TaskRow key={t.id} task={t} showProject showDate />
+              ))}
+            </div>
+          )}
           {finishedElsewhere.length > 0 && (
             <div>
               <h3>Also finished this day</h3>

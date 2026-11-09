@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { fmtDay, relDay } from "../core/dates";
-import { fmtMinutes, parseDuration, type Data, type Task } from "../core/model";
+import { fmtMinutes, isOpen, isPastDue, isPolishing, parseDuration, type Data, type Task } from "../core/model";
+import { stepCount } from "../core/stats";
 import { CompleteOnContext, useTaskLube, useUi } from "./context";
 
 export const EST_CHOICES = [15, 30, 60, 120];
@@ -13,11 +14,21 @@ export function projectName(data: Data, id: string | null | undefined): string {
 export function Check({ task }: { task: Task }) {
   const { complete } = useUi();
   const on = useContext(CompleteOnContext);
-  const cls = task.status === "done" ? "check is-done" : task.status === "dropped" ? "check is-dropped" : task.status === "doing" ? "check is-doing" : "check";
+  const polishing = isPolishing(task);
+  const cls =
+    task.status === "done"
+      ? "check is-done"
+      : task.status === "dropped"
+        ? "check is-dropped"
+        : polishing
+          ? "check is-half"
+          : task.status === "doing"
+            ? "check is-doing"
+            : "check";
   return (
     <button
       className={cls}
-      aria-label={task.status === "done" ? "Mark not done" : "Mark done"}
+      aria-label={task.status === "done" ? "Mark not done" : polishing ? "Submittable reached: finish or undo" : "Mark done"}
       onClick={(e) => {
         e.stopPropagation();
         complete(task, on);
@@ -45,12 +56,18 @@ export function TaskRow({
 }) {
   const { data, day } = useTaskLube();
   const { openTask } = useUi();
-  const chips: string[] = [];
+  const chips: (string | { text: string; cls: string })[] = [];
   if (showProject) chips.push(projectName(data, task.projectId));
+  if (task.kind === "deliverable" && task.level) chips.push(task.level === "good" ? "Good" : isOpen(task) ? "Submittable ✓" : "Submittable");
   if (task.est != null) chips.push(task.took != null ? `${fmtMinutes(task.est)} → ${fmtMinutes(task.took)}` : fmtMinutes(task.est));
   else if (task.took != null) chips.push(`took ${fmtMinutes(task.took)}`);
   if (showDate && task.scheduled) chips.push(task.scheduled === day ? "today" : fmtDay(task.scheduled));
-  if (task.due) chips.push(`due ${relDay(task.due, day)}`);
+  const steps = stepCount(data, task.id);
+  if (steps && isOpen(task)) chips.push(`${steps.open} of ${steps.total} steps open`);
+  // A passed due date shows as its date in dull red; upcoming ones as "due tomorrow" etc.
+  if (task.due) chips.push(isPastDue(task, day) ? { text: `due ${fmtDay(task.due)}`, cls: "past-due" } : `due ${relDay(task.due, day)}`);
+  if (task.dueResets) chips.push(`due date reset ${task.dueResets}×`);
+  if (task.autoDropped && task.status === "dropped") chips.push("dropped automatically");
   if (task.dread) chips.push(`dread ${task.dread}`);
   for (const tag of task.tags ?? []) chips.push(`#${tag}`);
   if (task.by === "claude") chips.push("by Claude");
@@ -62,8 +79,8 @@ export function TaskRow({
       </button>
       <span className="task-meta">
         {chips.map((c, i) => (
-          <span key={i} className="chip">
-            {c}
+          <span key={i} className={typeof c === "string" ? "chip" : `chip ${c.cls}`}>
+            {typeof c === "string" ? c : c.text}
           </span>
         ))}
         {extra}

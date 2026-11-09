@@ -1,6 +1,6 @@
 import { addDays, fmtDay, relDay } from "../core/dates";
-import { fmtMinutes, isOpen, type Task } from "../core/model";
-import { carriedOver, dayStats, habitWeek, plannedEstimate, projectSummary, timeSpent } from "../core/stats";
+import { DUE_GRACE_DAYS, fmtMinutes, isOpen, isPastDue, isPolishing, type Task } from "../core/model";
+import { carriedOver, dayStats, dueSoon, habitWeek, plannedEstimate, projectSummary, recentlyAutoDropped, timeSpent } from "../core/stats";
 import { Bar, Empty, QuickAdd, Section, TaskRow } from "./common";
 import { go, useTaskLube } from "./context";
 
@@ -19,6 +19,9 @@ export function Today() {
   const soon = summaries.filter((s) => !s.ship && s.project.deadline && s.project.deadline >= day && s.project.deadline <= addDays(day, 21));
   const passed = summaries.filter((s) => s.project.deadline && s.project.deadline < day);
   const carried = carriedOver(data, day);
+  // Carried-over tasks already show their due date there
+  const due = dueSoon(data, day).filter((t) => !carried.some((c) => c.task.id === t.id));
+  const autoDropped = recentlyAutoDropped(data, day);
   const habits = data.habits.filter((h) => !h.archived);
 
   return (
@@ -71,6 +74,58 @@ export function Today() {
       <Section title="Planned for today">
         {scheduled.length ? scheduled.sort(openFirst).map((t) => <TaskRow key={t.id} task={t} showProject />) : <Empty>Nothing scheduled.</Empty>}
       </Section>
+
+      {due.length > 0 && (
+        <Section title="Due soon">
+          {due.map((t) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              showProject
+              showDate
+              actions={
+                <>
+                  {!isPolishing(t) && (
+                    <button className="mini" onClick={() => dispatch({ type: "updateTask", id: t.id, patch: { scheduled: day } })}>
+                      Today
+                    </button>
+                  )}
+                  {isPastDue(t, day) && (
+                    <button className="mini" onClick={() => dispatch({ type: "setStatus", id: t.id, status: "dropped" })}>
+                      Drop
+                    </button>
+                  )}
+                </>
+              }
+            />
+          ))}
+        </Section>
+      )}
+
+      {autoDropped.length > 0 && (
+        <Section title="Dropped automatically">
+          <p className="muted small">{DUE_GRACE_DAYS} days after the due date. Check it off if it was done, or plan it for today.</p>
+          {autoDropped.map((t) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              showProject
+              actions={
+                <button
+                  className="mini"
+                  onClick={() => {
+                    // Reopen first: that resets the due date to today (counted), then plan it
+                    dispatch({ type: "setStatus", id: t.id, status: "todo" });
+                    dispatch({ type: "updateTask", id: t.id, patch: { scheduled: day } });
+                  }}
+                >
+                  Today
+                </button>
+              }
+            />
+          ))}
+        </Section>
+      )}
 
       {habits.length > 0 && (
         <Section title="Habits">
