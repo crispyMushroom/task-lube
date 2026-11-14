@@ -796,3 +796,35 @@ code {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Carried over: a project's tasks grouped, with "Restart the plan" */
+.carried-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.carried-head {
+  margin-bottom: 4px;
+}
+.carried-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.replan-days {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.replan-day-head {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.replan-task {
+  padding: 2px 0 2px 10px;
+  overflow-wrap: anywhere;
+}

@@ -128,7 +128,7 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
         </div>
         {(task.dueResets || isPastDue(task, day)) && (
           <span className="hint">
-            {isPastDue(task, day) && !(task.scheduled && task.scheduled >= day) ? `Drops automatically after ${fmtDay(addDays(task.due!, DUE_GRACE_DAYS))} unless planned or moved. ` : ""}
+            {isPastDue(task, day) && !task.projectId && !(task.scheduled && task.scheduled >= day) ? `Drops automatically after ${fmtDay(addDays(task.due!, DUE_GRACE_DAYS))} unless planned or moved. ` : ""}
             {task.dueResets ? `Due date reset ${task.dueResets}× after it passed.` : ""}
           </span>
         )}
@@ -203,26 +203,32 @@ function TaskForm({ task, onClose, dispatch, day }: { task: Task; onClose: () =>
         <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== (task.notes ?? "") && patch({ notes })} />
       </label>
 
-      <div className="field">
-        <span className="label">Steps</span>
-        {subtasks.map((t) => (
-          <TaskRow key={t.id} task={t} showDate />
-        ))}
-        <form
-          className="quick-add"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!sub.trim()) return;
-            dispatch({ type: "addTask", task: { title: sub.trim(), projectId: task.projectId, version: task.version, parentId: task.id } });
-            setSub("");
-          }}
-        >
-          <input value={sub} onChange={(e) => setSub(e.target.value)} placeholder="Add a step" />
-          <button className="btn" type="submit" disabled={!sub.trim()}>
-            Add
-          </button>
-        </form>
-      </div>
+      {(task.projectId || subtasks.length > 0) && (
+        <div className="field">
+          <span className="label">Steps</span>
+          {subtasks.map((t) => (
+            <TaskRow key={t.id} task={t} showDate />
+          ))}
+          {task.projectId ? (
+            <form
+              className="quick-add"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!sub.trim()) return;
+                dispatch({ type: "addTask", task: { title: sub.trim(), projectId: task.projectId, version: task.version, parentId: task.id } });
+                setSub("");
+              }}
+            >
+              <input value={sub} onChange={(e) => setSub(e.target.value)} placeholder="Add a step" />
+              <button className="btn" type="submit" disabled={!sub.trim()}>
+                Add
+              </button>
+            </form>
+          ) : (
+            <p className="hint">Steps are for project tasks. Move this task to a project to add more.</p>
+          )}
+        </div>
+      )}
 
       <div className="form-foot">
         <button

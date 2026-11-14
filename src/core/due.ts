@@ -11,8 +11,9 @@ export function autoDropDay(due: Day): Day {
  * Mutates `data`.
  * - A deliverable being polished finishes at Submittable once its due date has passed.
  *   It's recorded as done on the day it reached Submittable, so no day gains a new entry.
- * - Any other open task is dropped DUE_GRACE_DAYS after its due date, unless it's planned
- *   for today or later. Its open steps go with it.
+ * - Any other open task outside a project is dropped DUE_GRACE_DAYS after its due date, unless
+ *   it's planned for today or later. Project tasks are never dropped automatically: they often
+ *   depend on each other, and the project's deadline and plan cover them.
  */
 export function applyDueRules(data: Data, day: Day): void {
   const droppedNow = new Set<string>();
@@ -23,7 +24,7 @@ export function applyDueRules(data: Data, day: Day): void {
       t.doneOn = t.submittableOn ?? t.due;
       continue;
     }
-    if (t.scheduled && t.scheduled >= day) continue;
+    if (t.projectId || (t.scheduled && t.scheduled >= day)) continue;
     if (autoDropDay(t.due) <= day) {
       t.status = "dropped";
       t.droppedOn = autoDropDay(t.due);
@@ -31,7 +32,8 @@ export function applyDueRules(data: Data, day: Day): void {
       droppedNow.add(t.id);
     }
   }
-  // Open steps of a dropped task go with it (steps with their own due date follow their own)
+  // Open steps of a dropped task go with it (steps with their own due date follow their own).
+  // Only older data has steps outside projects.
   let grew = droppedNow.size > 0;
   while (grew) {
     grew = false;

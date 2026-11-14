@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { apply, applyAll, type Action } from "./actions";
 import { isoWeek, weekStart } from "./dates";
 import { MAX_BACKDATE_DAYS } from "./days";
+import { restartPlan } from "./replan";
 import { ARCHIVE_AFTER_DAYS } from "./format";
 import { emptyData, fmtMinutes, isPolishing, parseDuration, type Data } from "./model";
 import { carriedCount, carriedOver, dayStats, dueSoon, estimateReport, habitWeek, projectSummary, recentlyAutoDropped, timeSpent } from "./stats";
@@ -296,10 +297,100 @@ describe("due dates", () => {
     expect(task(d, "f").autoDropped).toBeUndefined();
   });
 
-  it("drops a task's open steps along with it", () => {
-    let d = apply(withDue(), { type: "addTask", at: at("2026-11-09"), task: { id: "f1", title: "F step", parentId: "f" } });
+  it("drops a task's open steps along with it (older data with steps outside projects)", () => {
+    let d = withDue();
+    d.tasks.push({ id: "f1", title: "F step", projectId: null, parentId: "f", version: "unsorted", status: "todo", order: 9, createdAt: "2026-11-09" });
     d = apply(d, { type: "tick", at: at("2026-11-16") });
     expect(task(d, "f1")).toMatchObject({ status: "dropped", autoDropped: true });
+  });
+
+  it("never drops project tasks automatically", () => {
+    let d = apply(setup(), { type: "updateTask", at: at("2026-11-09"), id: "c", patch: { due: "2026-11-10", scheduled: undefined } });
+    d = apply(d, { type: "tick", at: at("2026-11-25") });
+    expect(task(d, "c").status).toBe("todo");
+    expect(dueSoon(d, "2026-11-25").map((t) => t.id)).toContain("c"); // still listed, with its passed date
+    // reopening a project task doesn't reset its due date either
+    d = apply(d, { type: "setStatus", at: at("2026-11-25"), id: "c", status: "dropped" });
+    d = apply(d, { type: "setStatus", at: at("2026-11-25", 13), id: "c", status: "todo" });
+    expect(task(d, "c")).toMatchObject({ due: "2026-11-10" });
+    expect(task(d, "c").dueResets).toBeUndefined();
+  });
+});
+
+describe("steps", () => {
+  const task = (d: Data, id: string) => d.tasks.find((t) => t.id === id)!;
+
+  it("exist only in projects: a step under an inbox task becomes a plain task", () => {
+    let d = apply(setup(), { type: "addTask", at: at("2026-11-09"), task: { id: "i", title: "Inbox task", projectId: null } });
+    d = apply(d, { type: "addTask", at: at("2026-11-09"), task: { id: "i1", title: "Step", projectId: null, parentId: "i" } });
+    expect(task(d, "i1").parentId).toBeUndefined();
+    d = apply(d, { type: "addTask", at: at("2026-11-09"), task: { id: "a1", title: "Step", projectId: null, parentId: "a" } });
+    expect(task(d, "a1")).toMatchObject({ parentId: "a", projectId: "p1" });
+  });
+
+  it("follow their parent to another project or the inbox", () => {
+    let d = apply(setup(), { type: "addTask", at: at("2026-11-09"), task: { id: "a1", title: "Step", projectId: "p1", parentId: "a", version: "submittable" } });
+    d = apply(d, { type: "addTask", at: at("2026-11-09"), task: { id: "a2", title: "Sub-step", projectId: "p1", parentId: "a1", version: "submittable" } });
+    d = apply(d, { type: "updateTask", at: at("2026-11-09"), id: "a", patch: { projectId: null, version: "unsorted" } });
+    expect(task(d, "a1")).toMatchObject({ projectId: null, version: "unsorted" });
+    expect(task(d, "a2").projectId).toBeNull();
+  });
+});
+
+describe("restarting a project's plan", () => {
+  const task = (d: Data, id: string) => d.tasks.find((t) => t.id === id)!;
+  // a (1h) and b (30m) planned 11-10, c (no estimate) 11-11; plus x (1h) planned 11-20
+  const slipped = () =>
+    applyAll(setup(), [
+      { type: "addTask", at: at("2026-11-09"), task: { id: "x", title: "X", projectId: "p1", version: "good", scheduled: "2026-11-20", est: 60 } },
+      { type: "tick", at: at("2026-11-14") },
+    ]);
+
+  it("moves slipped tasks forward in order, keeping later ones where they are", () => {
+    const plan = restartPlan(slipped(), "p1", "2026-11-14");
+    expect(plan.moves).toEqual([
+      { id: "a", from: "2026-11-10", to: "2026-11-14" },
+      { id: "b", from: "2026-11-10", to: "2026-11-14" },
+      { id: "c", from: "2026-11-11", to: "2026-11-14" },
+    ]);
+    expect(plan.last).toBe("2026-11-20");
+    expect(plan.unestimated).toBe(1);
+    expect(plan.load).toEqual({ "2026-11-14": 120 });
+  });
+
+  it("fills each day up to the capacity guideline, counting other planned work", () => {
+    let d = slipped();
+    d = apply(d, { type: "addTask", at: at("2026-11-14"), task: { id: "o", title: "Other", projectId: null, scheduled: "2026-11-14", est: 240 } });
+    const plan = restartPlan(d, "p1", "2026-11-14");
+    // 4h already planned: a (1h) fits, b (30m) doesn't
+    expect(plan.moves.map((m) => [m.id, m.to])).toEqual([
+      ["a", "2026-11-14"],
+      ["b", "2026-11-15"],
+      ["c", "2026-11-15"],
+    ]);
+  });
+
+  it("pushes a later task when the restarted plan reaches it", () => {
+    let d = slipped();
+    d = apply(d, { type: "updateTask", at: at("2026-11-14"), id: "x", patch: { scheduled: "2026-11-15", est: 120 } });
+    d = apply(d, { type: "updateSettings", at: at("2026-11-14"), patch: { capacityHours: 1 } });
+    const plan = restartPlan(d, "p1", "2026-11-14");
+    // x fills the 15th, so b and c go to the 16th, and x moves after them
+    expect(plan.moves.map((m) => [m.id, m.to])).toEqual([
+      ["a", "2026-11-14"],
+      ["b", "2026-11-16"],
+      ["c", "2026-11-16"],
+      ["x", "2026-11-17"],
+    ]);
+  });
+
+  it("the replan action applies the moves like planning each task", () => {
+    let d = slipped();
+    const plan = restartPlan(d, "p1", "2026-11-15");
+    d = apply(d, { type: "replan", at: at("2026-11-14", 13), projectId: "p1", moves: plan.moves.map((m) => ({ id: m.id, scheduled: m.to })) });
+    expect(["a", "b", "c"].map((id) => task(d, id).scheduled)).toEqual(["2026-11-15", "2026-11-15", "2026-11-15"]);
+    expect(carriedOver(d, "2026-11-14")).toEqual([]);
+    expect(restartPlan(d, "p1", "2026-11-15").moves).toEqual([]);
   });
 });
 

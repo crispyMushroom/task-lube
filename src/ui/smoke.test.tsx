@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeAll, describe, expect, it } from "vitest";
 import { App } from "../App";
+import { addDays, today } from "../core/dates";
 
 // jsdom lacks <dialog> methods
 beforeAll(() => {
@@ -54,6 +55,7 @@ describe("app smoke test (local mode)", () => {
     await act(async () => document.querySelector<HTMLFormElement>(".quick-add")!.requestSubmit());
     await wait();
     expect(window.location.hash).toMatch(/#\/projects\/p_/);
+    const projectHash = window.location.hash;
     const addSubmittable = document.querySelector<HTMLInputElement>('input[placeholder="Add to Submittable…"]')!;
     await type(addSubmittable, "Write the email template");
     await act(async () => addSubmittable.form!.requestSubmit());
@@ -144,5 +146,38 @@ describe("app smoke test (local mode)", () => {
     expect(document.querySelector("dialog[open]")!.textContent).toContain("Finish as is");
     await act(async () => byText("dialog[open] button", "Not submittable yet")!.click());
     expect(byText("section", "Due soon")!.querySelector(".check.is-half")).toBeNull();
+
+    // Two project tasks from earlier days show as one group in Carried over
+    await go(projectHash);
+    for (const [title, back] of [["Outline the pitch", 2], ["Send the first batch", 1]] as const) {
+      const add = document.querySelector<HTMLInputElement>('input[placeholder="Add to Submittable…"]')!;
+      await type(add, title);
+      await act(async () => add.form!.requestSubmit());
+      await act(async () => byText(".task-title", title)!.click());
+      await type(document.querySelector<HTMLInputElement>('dialog[open] input[type="date"]')!, addDays(today(), -back));
+      await act(async () => byText("dialog[open] button", "Close")!.click());
+    }
+    await go("#/today");
+    const group = document.querySelector<HTMLElement>(".carried-group")!;
+    expect(group.textContent).toContain("2 open from earlier days");
+    expect(group.textContent).toContain("Outline the pitch");
+    expect(group.textContent).not.toContain("Send the first batch");
+    await act(async () => byText(".carried-group button", "Show all 2")!.click());
+    expect(document.querySelector(".carried-group")!.textContent).toContain("Send the first batch");
+    // Restart the plan: preview first, nothing moves until confirmed
+    await act(async () => byText(".carried-group button", "Restart the plan")!.click());
+    const dlg = document.querySelector<HTMLElement>("dialog[open]")!;
+    expect(dlg.textContent).toContain("Outline the pitch");
+    expect(dlg.textContent).toContain("Last task");
+    expect(document.querySelector(".carried-group")).not.toBeNull();
+    await act(async () => byText("dialog[open] button", "Move 2 tasks")!.click());
+    expect(document.querySelector(".carried-group")).toBeNull();
+    expect(byText("section", "Planned for today")!.textContent).toContain("Outline the pitch");
+
+    // Steps can only be added to project tasks
+    await go("#/inbox");
+    await act(async () => byText(".task-title", "fix plots")!.click());
+    expect(document.querySelector('dialog[open] input[placeholder="Add a step"]')).toBeNull();
+    await act(async () => byText("dialog[open] button", "Close")!.click());
   });
 });

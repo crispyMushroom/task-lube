@@ -12,6 +12,10 @@ import { isOpen, isPastDue, isPolishing, newId, type Data, type Habit, type Leve
  * before `at` and at most MAX_BACKDATE_DAYS back.
  * `setLevel` moves a deliverable to Submittable (stays open for polishing) or Good (finished),
  * or with `null` back to not started. `on` works as for setStatus.
+ * `replan` moves a project's planned tasks to new days in one go (computed by `restartPlan`,
+ * replan.ts). Each move works like an `updateTask` of `scheduled`.
+ * Steps (tasks with a parentId) exist only in projects: a step added under a task outside a
+ * project becomes a plain task, and steps follow their parent when it changes project.
  * After every action, `applyDueRules` drops or finishes tasks whose due date has passed (due.ts).
  */
 export type Action =
@@ -19,6 +23,7 @@ export type Action =
   | { type: "updateTask"; at: string; id: string; patch: Partial<Omit<Task, "id">> }
   | { type: "setStatus"; at: string; id: string; status: Task["status"]; took?: number; on?: Day }
   | { type: "setLevel"; at: string; id: string; level: Level | null; took?: number; on?: Day }
+  | { type: "replan"; at: string; projectId: string; moves: { id: string; scheduled: Day }[] }
   | { type: "deleteTask"; at: string; id: string }
   | { type: "addProject"; at: string; project: Partial<Project> & { name: string } }
   | { type: "updateProject"; at: string; id: string; patch: Partial<Omit<Project, "id">> }
@@ -66,10 +71,50 @@ function clean<T extends object>(o: T): T {
  */
 function reopenPastDue(t: Task, day: Day) {
   if (!isOpen(t) || !t.due) return;
-  const closes = isPolishing(t) ? t.due < day : autoDropDay(t.due) <= day && !(t.scheduled && t.scheduled >= day);
+  const closes = isPolishing(t) ? t.due < day : !t.projectId && autoDropDay(t.due) <= day && !(t.scheduled && t.scheduled >= day);
   if (closes) {
     t.due = day;
     t.dueResets = (t.dueResets ?? 0) + 1;
+  }
+}
+
+/** Edit a task. Shared by updateTask and replan. */
+function updateOne(data: Data, t: Task, patch: Partial<Omit<Task, "id">>, day: Day) {
+  const pastDue = isPastDue(t, day);
+  const oldDue = t.due;
+  const oldProject = t.projectId;
+  Object.assign(t, patch);
+  clean(t);
+  if (pastDue) {
+    // A passed due date that's moved or cleared, or planning the task (which moves the due
+    // date to the planned day), counts as a reset. The count stays visible on the task.
+    if ("due" in patch) {
+      if (t.due !== oldDue) t.dueResets = (t.dueResets ?? 0) + 1;
+    } else if ("scheduled" in patch && t.scheduled && t.scheduled >= day) {
+      t.due = t.scheduled;
+      t.dueResets = (t.dueResets ?? 0) + 1;
+    }
+  }
+  if (t.kind !== "deliverable") {
+    delete t.level;
+    delete t.submittableOn;
+    delete t.submittableTook;
+  }
+  if ("projectId" in patch && t.projectId !== oldProject) {
+    // Steps follow their parent
+    const ids = new Set([t.id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const s of data.tasks) {
+        if (s.parentId && ids.has(s.parentId) && !ids.has(s.id)) {
+          ids.add(s.id);
+          s.projectId = t.projectId;
+          if (!t.projectId) s.version = "unsorted";
+          grew = true;
+        }
+      }
+    }
   }
 }
 
@@ -82,7 +127,14 @@ export function apply(input: Data, action: Action): Data {
     case "addTask": {
       const t = action.task;
       if (t.id && data.tasks.some((x) => x.id === t.id)) break; // already added (e.g. a retried save)
-      const projectId = t.projectId ?? null;
+      let projectId = t.projectId ?? null;
+      let parentId = t.parentId;
+      if (parentId) {
+        // Steps exist only in projects, and always in their parent's project
+        const parent = data.tasks.find((x) => x.id === parentId);
+        if (parent?.projectId) projectId = parent.projectId;
+        else parentId = undefined;
+      }
       data.tasks.push(
         clean({
           version: "unsorted",
@@ -90,6 +142,7 @@ export function apply(input: Data, action: Action): Data {
           order: nextOrder(data, projectId),
           ...t,
           projectId,
+          parentId,
           id: t.id ?? newId("t"),
           title: t.title.trim(),
           createdAt: day,
@@ -99,25 +152,13 @@ export function apply(input: Data, action: Action): Data {
     }
     case "updateTask": {
       const t = data.tasks.find((x) => x.id === action.id);
-      if (!t) break;
-      const pastDue = isPastDue(t, day);
-      const oldDue = t.due;
-      Object.assign(t, action.patch);
-      clean(t);
-      if (pastDue) {
-        // A passed due date that's moved or cleared, or planning the task (which moves the due
-        // date to the planned day), counts as a reset. The count stays visible on the task.
-        if ("due" in action.patch) {
-          if (t.due !== oldDue) t.dueResets = (t.dueResets ?? 0) + 1;
-        } else if ("scheduled" in action.patch && t.scheduled && t.scheduled >= day) {
-          t.due = t.scheduled;
-          t.dueResets = (t.dueResets ?? 0) + 1;
-        }
-      }
-      if (t.kind !== "deliverable") {
-        delete t.level;
-        delete t.submittableOn;
-        delete t.submittableTook;
+      if (t) updateOne(data, t, action.patch, day);
+      break;
+    }
+    case "replan": {
+      for (const m of action.moves) {
+        const t = data.tasks.find((x) => x.id === m.id);
+        if (t && isOpen(t)) updateOne(data, t, { scheduled: m.scheduled }, day);
       }
       break;
     }
@@ -266,6 +307,8 @@ export function describe(a: Action, data?: Data): string {
       return `${a.status} "${title(a.id)}"${a.on ? ` (for ${a.on})` : ""}`;
     case "setLevel":
       return `${a.level ?? "not started"} "${title(a.id)}"${a.on ? ` (for ${a.on})` : ""}`;
+    case "replan":
+      return `restart the plan for "${data?.projects.find((p) => p.id === a.projectId)?.name ?? a.projectId}" (${a.moves.length} task${a.moves.length === 1 ? "" : "s"} moved)`;
     case "deleteTask":
       return `delete "${title(a.id)}"`;
     case "addProject":

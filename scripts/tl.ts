@@ -3,6 +3,7 @@
  * It applies changes through the same rules as the app, so the daily record stays consistent.
  *
  *   npm run tl -- show today|week|projects|project <name>|inbox|record [days]|habits|tasks <text>|tags
+ *   npm run tl -- show replan <project> [YYYY-MM-DD]   (preview "restart the plan"; prints the action)
  *   npm run tl -- apply '<action JSON or array>' [-m "message"] [--no-git] [--as-me]
  *   npm run tl -- migrate      (one-time: logger.json -> tasklube.json; also happens on first apply)
  *   (new tasks/projects are tagged by: "claude" unless --as-me)
@@ -18,6 +19,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { applyAll, describe, stamp, type Action, type ActionInput } from "../src/core/actions";
+import { REPLAN_DEFAULT_EST, restartPlan } from "../src/core/replan";
 import { addDays, fmtDay, relDay, today, weekDays } from "../src/core/dates";
 import {
   isMovedStub,
@@ -149,13 +151,40 @@ function show(d: Data, what: string, arg: string) {
       const ship = d.projects.map((p) => projectSummary(d, p, day)).filter((s) => s.ship);
       for (const s of ship) out.push(`Ship mode: ${s.project.name} (deadline ${s.project.deadline}), Submittable open: ${s.submittableOpen.length}`);
       const carried = carriedOver(d, day);
-      if (carried.length) out.push("Carried over:", ...carried.map((c) => `  ${line(c.task, d, { project: true })} carried ${c.count}x`));
+      if (carried.length) {
+        out.push("Carried over:");
+        const perProject = new Map<string, typeof carried>();
+        for (const c of carried) if (c.task.projectId) perProject.set(c.task.projectId, [...(perProject.get(c.task.projectId) ?? []), c]);
+        for (const [pid, g] of perProject) {
+          if (g.length < 2) continue;
+          out.push(`  ${pname(d, pid)}: ${g.length} open from earlier days (restart its plan: show replan ${pid})`);
+          for (const c of g.sort((a, b) => a.task.scheduled!.localeCompare(b.task.scheduled!) || a.task.order - b.task.order)) out.push(`    ${line(c.task, d)} carried ${c.count}x`);
+        }
+        for (const c of carried.filter((c) => (perProject.get(c.task.projectId ?? "")?.length ?? 0) < 2)) out.push(`  ${line(c.task, d, { project: true })} carried ${c.count}x`);
+      }
       const due = dueSoon(d, day).filter((t) => !carried.some((c) => c.task.id === t.id));
       if (due.length) out.push(`Due soon (next ${DUE_SOON_DAYS} days, and passed ones until dropped):`, ...due.map((t) => "  " + line(t, d, { project: true })));
       const autoDropped = recentlyAutoDropped(d, day);
       if (autoDropped.length) out.push("Dropped automatically (last 3 days):", ...autoDropped.map((t) => "  " + line(t, d, { project: true })));
       const habits = d.habits.filter((h) => !h.archived);
       if (habits.length) out.push("Habits this week: " + habits.map((h) => `${h.name} ${habitWeek(d, h.id, day)}/${h.target}${d.habitLog[day]?.includes(h.id) ? " (done today)" : ""}`).join(", "));
+      break;
+    }
+    case "replan": {
+      const [name, startArg] = arg.split(" ");
+      const p = d.projects.find((x) => x.id === name || x.name.toLowerCase().includes((name ?? "").toLowerCase()));
+      if (!p) throw new Error(`No project matching "${name}"`);
+      const start = startArg || day;
+      const plan = restartPlan(d, p.id, start);
+      out.push(`Restart the plan for ${p.name} from ${start} (up to ${d.settings.capacityHours}h of estimates a day, order kept):`);
+      if (!plan.moves.length) out.push("  Nothing needs to move.");
+      for (const [dd, load] of Object.entries(plan.load)) {
+        out.push(`  ${dd} ${fmtDay(dd, { weekday: "short" })} (${fmtMinutes(load)} planned):`);
+        for (const m of plan.moves.filter((m) => m.to === dd)) out.push(`    ${d.tasks.find((t) => t.id === m.id)?.title} (from ${m.from})  {${m.id}}`);
+      }
+      if (plan.last) out.push(`Last task ${plan.last}${p.deadline ? `; deadline ${p.deadline}` : ""}${p.internalDeadline ? `, internal ${p.internalDeadline}` : ""}`);
+      if (plan.unestimated) out.push(`${plan.unestimated} without an estimate counted as ${REPLAN_DEFAULT_EST}m.`);
+      if (plan.moves.length) out.push("Apply (after the user approves):", JSON.stringify({ type: "replan", projectId: p.id, moves: plan.moves.map((m) => ({ id: m.id, scheduled: m.to })) }));
       break;
     }
     case "week": {
@@ -230,7 +259,7 @@ function show(d: Data, what: string, arg: string) {
       if (!out.length) out.push("No tagged tasks in the last 30 days.");
       break;
     default:
-      throw new Error(`Unknown view "${what}". Try: today, week, projects, project <name>, inbox, tasks <text>, habits, record [days], tags`);
+      throw new Error(`Unknown view "${what}". Try: today, week, projects, project <name>, replan <project> [date], inbox, tasks <text>, habits, record [days], tags`);
   }
   console.log(out.join("\n"));
 }

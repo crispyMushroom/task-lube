@@ -1,8 +1,10 @@
 import { addDays, fmtDay, relDay } from "../core/dates";
 import { DUE_GRACE_DAYS, fmtMinutes, isOpen, isPastDue, isPolishing, type Task } from "../core/model";
 import { carriedOver, dayStats, dueSoon, habitWeek, plannedEstimate, projectSummary, recentlyAutoDropped, timeSpent } from "../core/stats";
-import { Bar, Empty, QuickAdd, Section, TaskRow } from "./common";
+import { useState } from "react";
+import { Bar, Empty, projectName, QuickAdd, Section, TaskRow } from "./common";
 import { go, useTaskLube } from "./context";
+import { ReplanDialog } from "./Replan";
 
 export function Today() {
   const { data, dispatch, day } = useTaskLube();
@@ -23,6 +25,42 @@ export function Today() {
   const due = dueSoon(data, day).filter((t) => !carried.some((c) => c.task.id === t.id));
   const autoDropped = recentlyAutoDropped(data, day);
   const habits = data.habits.filter((h) => !h.archived);
+  // Project tasks often depend on each other, so a project with several carried-over tasks shows
+  // as one group: its next task, the rest on request, and a way to restart its plan.
+  const groups = new Map<string, typeof carried>();
+  for (const c of carried) if (c.task.projectId) groups.set(c.task.projectId, [...(groups.get(c.task.projectId) ?? []), c]);
+  for (const [id, g] of groups) {
+    if (g.length < 2) groups.delete(id);
+    else g.sort((a, b) => a.task.scheduled!.localeCompare(b.task.scheduled!) || a.task.order - b.task.order);
+  }
+  const loose = carried.filter((c) => !groups.has(c.task.projectId ?? ""));
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const [replanning, setReplanning] = useState<string | null>(null);
+  const carriedRow = ({ task, count }: (typeof carried)[number], showProject = true) => (
+    <TaskRow
+      key={task.id}
+      task={task}
+      showProject={showProject}
+      extra={
+        <span className="chip">
+          from {fmtDay(task.scheduled!)} · carried {count}×{count >= 3 ? " · shrink it, reschedule it, or drop it?" : ""}
+        </span>
+      }
+      actions={
+        <>
+          <button className="mini" onClick={() => dispatch({ type: "updateTask", id: task.id, patch: { scheduled: day } })}>
+            Today
+          </button>
+          <button className="mini" onClick={() => dispatch({ type: "updateTask", id: task.id, patch: { scheduled: undefined } })}>
+            Unschedule
+          </button>
+          <button className="mini" onClick={() => dispatch({ type: "setStatus", id: task.id, status: "dropped" })}>
+            Drop
+          </button>
+        </>
+      }
+    />
+  );
 
   return (
     <div className="page">
@@ -150,33 +188,35 @@ export function Today() {
 
       {carried.length > 0 && (
         <Section title="Carried over">
-          {carried.map(({ task, count }) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              showProject
-              extra={
-                <span className="chip">
-                  from {fmtDay(task.scheduled!)} · carried {count}×{count >= 3 ? " · shrink it, reschedule it, or drop it?" : ""}
-                </span>
-              }
-              actions={
-                <>
-                  <button className="mini" onClick={() => dispatch({ type: "updateTask", id: task.id, patch: { scheduled: day } })}>
-                    Today
+          {[...groups].map(([pid, g]) => {
+            const open = expanded.includes(pid);
+            return (
+              <div key={pid} className="carried-group">
+                <div className="carried-head">
+                  <a href={`#/projects/${pid}`}>{projectName(data, pid)}</a>
+                  <span className="muted small">
+                    {" "}
+                    · {g.length} open from earlier days, since {fmtDay(g[0].task.scheduled!)}
+                  </span>
+                </div>
+                <div className="muted small">Next in the plan</div>
+                {carriedRow(g[0], false)}
+                {open && g.slice(1).map((c) => carriedRow(c, false))}
+                <div className="carried-actions">
+                  <button className="mini" onClick={() => setExpanded(open ? expanded.filter((x) => x !== pid) : [...expanded, pid])}>
+                    {open ? "Show only the next" : `Show all ${g.length}`}
                   </button>
-                  <button className="mini" onClick={() => dispatch({ type: "updateTask", id: task.id, patch: { scheduled: undefined } })}>
-                    Unschedule
+                  <button className="mini" onClick={() => setReplanning(pid)}>
+                    Restart the plan from today
                   </button>
-                  <button className="mini" onClick={() => dispatch({ type: "setStatus", id: task.id, status: "dropped" })}>
-                    Drop
-                  </button>
-                </>
-              }
-            />
-          ))}
+                </div>
+              </div>
+            );
+          })}
+          {loose.map((c) => carriedRow(c))}
         </Section>
       )}
+      <ReplanDialog projectId={replanning} onClose={() => setReplanning(null)} />
 
       {(soon.length > 0 || passed.length > 0) && (
         <Section title="Deadlines">
