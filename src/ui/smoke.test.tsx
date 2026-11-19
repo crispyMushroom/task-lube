@@ -86,6 +86,10 @@ describe("app smoke test (local mode)", () => {
     const todayCard = document.querySelector<HTMLButtonElement>(".week-card.is-today")!;
     expect(todayCard.textContent).toContain("1/1");
     expect(todayCard.textContent).toContain("spent 1.5h");
+    // Time bar: grey planned estimate behind the colored time spent
+    expect(todayCard.textContent).toContain("planned ");
+    expect(todayCard.querySelector<HTMLElement>(".time-bar .bar-fill")!.style.width).not.toBe("0%");
+    expect(todayCard.querySelector(".time-bar .bar-planned")).not.toBeNull();
     expect(todayCard.textContent).not.toContain("Write the email template"); // summary only
     // Today's view has no "done on that day" switch; a past day's view does
     await act(async () => todayCard.click());

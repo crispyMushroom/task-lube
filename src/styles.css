@@ -343,6 +343,23 @@ main {
   transition: width 0.25s;
 }
 
+/* Planned time (grey) behind time spent (accent) */
+.time-bar {
+  position: relative;
+  background: color-mix(in srgb, var(--border) 50%, transparent);
+}
+.time-bar > div {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.bar-planned {
+  height: 100%;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  border-radius: 4px;
+  transition: width 0.25s;
+}
+
 .quick-add {
   display: flex;
   gap: 8px;

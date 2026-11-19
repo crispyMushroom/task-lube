@@ -2,8 +2,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { addDays, fmtDay, weekDays, weekStart } from "../core/dates";
 import { canBackdate } from "../core/days";
 import { countsDoneOn, fmtMinutes, isOpen, type Task } from "../core/model";
-import { dayStats, timeSpent } from "../core/stats";
-import { Bar, Dialog, Empty, Section, TaskRow, projectName } from "./common";
+import { dayStats, plannedEstimate, timeSpent } from "../core/stats";
+import { Dialog, Empty, Section, TaskRow, TimeBar, projectName } from "./common";
 import { CompleteOnContext, useTaskLube } from "./context";
 
 // Per-device preference for the past-day toggle; on unless turned off
@@ -122,6 +122,8 @@ function DayCard({ d, onOpen }: { d: string; onOpen: () => void }) {
   const rec = d <= day ? dayStats(data.days[d]) : null;
   const planned = rec?.planned ?? scheduled.length;
   const done = rec?.done ?? scheduled.filter((t) => t.status === "done").length;
+  // Planned time: the record's estimate up to today (tasks moved away still count), else what's scheduled
+  const plannedMin = d <= day && data.days[d] ? plannedEstimate(data.days[d], data).minutes : est;
   const past = d < day;
   const dueCount = data.tasks.filter((t) => t.due === d && isOpen(t)).length;
 
@@ -139,9 +141,9 @@ function DayCard({ d, onOpen }: { d: string; onOpen: () => void }) {
       ) : (
         <span className="week-card-empty">Nothing planned</span>
       )}
-      <Bar pct={Math.min(1, est / capMin)} />
-      <span className={est > capMin ? "small over" : "small muted"}>
-        est {fmtMinutes(est) || "0m"} of {data.settings.capacityHours}h
+      <TimeBar planned={plannedMin} spent={spent} guideline={capMin} />
+      <span className={plannedMin > capMin ? "small over" : "small muted"}>
+        planned {fmtMinutes(plannedMin) || "0m"} of {data.settings.capacityHours}h
       </span>
       <span className="small muted">{[spent ? `spent ${fmtMinutes(spent)}` : "", dueCount ? `${dueCount} due` : ""].filter(Boolean).join(" · ") || " "}</span>
     </button>

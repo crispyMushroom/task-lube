@@ -185,6 +185,21 @@ export function QuickAdd({ placeholder, onAdd }: { placeholder: string; onAdd: (
   );
 }
 
+/**
+ * A day's time: planned estimate (grey) behind time spent (accent color). Both share one scale, the
+ * largest of the guideline, planned and spent, so going past the plan or the guideline stays visible.
+ */
+export function TimeBar({ planned, spent, guideline }: { planned: number; spent: number; guideline: number }) {
+  const scale = Math.max(guideline, planned, spent, 1);
+  const width = (min: number) => `${Math.round((Math.min(min, scale) / scale) * 100)}%`;
+  return (
+    <div className="bar time-bar" role="img" aria-label={`planned ${fmtMinutes(planned) || "0m"}, spent ${fmtMinutes(spent) || "0m"}`}>
+      <div className="bar-planned" style={{ width: width(planned) }} />
+      <div className="bar-fill" style={{ width: width(spent) }} />
+    </div>
+  );
+}
+
 export function Bar({ pct }: { pct: number }) {
   return (
     <div className="bar">
